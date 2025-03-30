@@ -10,7 +10,7 @@
         margin: 0;
         padding: 0;
         overflow: hidden;
-        background-color: #0d1117;
+        background-color: #0d1117; /* Default, will be overridden by theme */
         color: #c9d1d9;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
           Arial, sans-serif;
@@ -139,15 +139,16 @@
           cellSpacing: 0.2,
           heightScale: 1,
           autoRotate: true,
+          // Standard theme colors (kept for reference/fallback)
           baseColor: 0x0d1117,
-          colors: {
-            none: 0x161b22,
-            first_quartile: 0x0e4429,
-            second_quartile: 0x006d32,
-            third_quartile: 0x26a641,
-            fourth_quartile: 0x39d353,
+           colors: {
+              none: 0x161b22,
+              first_quartile: 0x0e4429,
+              second_quartile: 0x006d32,
+              third_quartile: 0x26a641,
+              fourth_quartile: 0x39d353,
           },
-          highlightColor: 0xffcc00,
+          highlightColor: 0xffcc00, // Default highlight
         },
         hoveredCell: null,
         username: "torvalds", // Default username
@@ -158,27 +159,60 @@
         themes: {
           Standard: {
             name: "Standard",
+             // Standard theme colors moved here
+            baseColor: 0x0d1117,
+            colors: {
+              none: 0x161b22,
+              first_quartile: 0x0e4429,
+              second_quartile: 0x006d32,
+              third_quartile: 0x26a641,
+              fourth_quartile: 0x39d353,
+            },
+            highlightColor: 0xffcc00,
           },
           Glow: {
             name: "Glow",
-            // Store theme-specific settings if needed
+            baseColor: 0x0d1117,
+            colors: { // Glow theme might use slightly different base colors
+              none: 0x161b22,
+              first_quartile: 0x0e4429,
+              second_quartile: 0x006d32,
+              third_quartile: 0x26a641,
+              fourth_quartile: 0x39d353,
+            },
+            highlightColor: 0xffcc00,
             bloomStrength: 1.0,
             bloomRadius: 0.8,
             bloomThreshold: 0.3,
             toneMappingExposure: 1.5,
             emissiveIntensity: 0.1,
           },
-          // Add more themes here later
-          // Example:
-          // 'Minimal': {
-          //     name: 'Minimal',
-          //     /* settings */
-          // }
+          Minesweeper: {
+              name: "Minesweeper",
+              baseColor: 0xb0b0b0, // Light gray background like classic Minesweeper
+              cellBackgroundColor: '#c0c0c0', // Unclicked tile color (silver/gray)
+              cellBorderColor: '#808080', // Darker border
+              cellHighlightColor: 0xffff00, // Yellow highlight on hover
+              numberColors: [ // Colors for numbers 1-8
+                  '#0000ff', // 1: Blue
+                  '#008000', // 2: Green
+                  '#ff0000', // 3: Red
+                  '#000080', // 4: Dark Blue
+                  '#800000', // 5: Maroon
+                  '#008080', // 6: Teal
+                  '#000000', // 7: Black
+                  '#808080'  // 8: Gray
+              ],
+              bombColor: '#000000', // Bomb icon color
+              mineThresholdLevel: 4, // Use Level 4 contributions as "mines"
+              textureSize: 64, // Size for generated textures
+          }
         },
         themeSettings: {
           // This object will be controlled by dat.GUI
           theme: "Standard",
         },
+        minesweeperTextures: null, // Cache for Minesweeper textures
         // --- End Theme Management ---
       };
 
@@ -189,7 +223,8 @@
         setupGUI(); // Setup dat.GUI controls
         setupEventListeners();
         setupInitialValues();
-        applyTheme(app.currentTheme); // Apply the initial theme
+        // Apply the initial theme (will generate textures if Minesweeper)
+        applyTheme(app.currentTheme, true); // Pass true for initial setup
         animateLoadingText();
         fetchContributionsData();
       }
@@ -198,7 +233,7 @@
       function setupThreeJS() {
         // Create scene
         app.scene = new THREE.Scene();
-        app.scene.background = new THREE.Color(app.config.baseColor);
+        // Background color set by applyTheme
 
         // Create camera
         app.camera = new THREE.PerspectiveCamera(
@@ -215,8 +250,6 @@
         app.renderer.setSize(window.innerWidth, window.innerHeight);
         app.renderer.shadowMap.enabled = true;
         // Tone mapping will be set by applyTheme
-        // app.renderer.toneMapping = THREE.ReinhardToneMapping;
-        // app.renderer.toneMappingExposure = 1.5;
         document.body.appendChild(app.renderer.domElement);
 
         // Add lights (remains the same)
@@ -236,6 +269,7 @@
         app.scene.add(directionalLight);
 
         // OrbitControls (remains the same)
+        // Use the embedded OrbitControls code below
         app.controls = new THREE.OrbitControls(
           app.camera,
           app.renderer.domElement
@@ -285,19 +319,10 @@
           .onChange((value) => {
             applyTheme(value);
           });
-
-        // Optional: Add controls for Glow theme parameters if you want runtime tuning
-        // const glowFolder = app.gui.addFolder('Glow Settings');
-        // glowFolder.add(app.themes.Glow, 'bloomThreshold', 0.0, 1.0).onChange(value => { if (app.currentTheme === 'Glow') app.bloomPass.threshold = value; });
-        // glowFolder.add(app.themes.Glow, 'bloomStrength', 0.0, 3.0).onChange(value => { if (app.currentTheme === 'Glow') app.bloomPass.strength = value; });
-        // glowFolder.add(app.themes.Glow, 'bloomRadius', 0.0, 1.0).onChange(value => { if (app.currentTheme === 'Glow') app.bloomPass.radius = value; });
-        // glowFolder.add(app.themes.Glow, 'toneMappingExposure', 0.1, 2.0).onChange(value => { if (app.currentTheme === 'Glow') app.renderer.toneMappingExposure = value; });
-        // glowFolder.add(app.themes.Glow, 'emissiveIntensity', 0.0, 1.0).onChange(value => { if (app.currentTheme === 'Glow') updateAllCellMaterials(); });
-        // glowFolder.open(); // Optional: Open the folder by default
       }
 
       // Apply a specific theme
-      function applyTheme(themeName) {
+      function applyTheme(themeName, isInitialSetup = false) {
         if (!app.themes[themeName]) {
           console.warn(`Theme "${themeName}" not found.`);
           return;
@@ -305,34 +330,48 @@
 
         console.log(`Applying theme: ${themeName}`);
         app.currentTheme = themeName;
-        app.themeSettings.theme = themeName; // Sync GUI state if changed programmatically
+        app.themeSettings.theme = themeName; // Sync GUI state
 
+        const themeConfig = app.themes[themeName];
         const isGlow = themeName === "Glow";
-        const glowConfig = app.themes.Glow; // Get glow settings
+        const isMinesweeper = themeName === "Minesweeper";
 
-        // 1. Update Renderer Settings
+        // 1. Update Renderer Settings & Background
         app.renderer.toneMapping = isGlow
           ? THREE.ReinhardToneMapping
-          : THREE.NoToneMapping; // Or LinearToneMapping if preferred for Standard
+          : THREE.NoToneMapping;
         app.renderer.toneMappingExposure = isGlow
-          ? glowConfig.toneMappingExposure
-          : 1.0; // Default exposure
+          ? themeConfig.toneMappingExposure
+          : 1.0;
+
+        if (app.scene) {
+            app.scene.background = new THREE.Color(themeConfig.baseColor);
+            // Update body background for consistency
+            document.body.style.backgroundColor = new THREE.Color(themeConfig.baseColor).getStyle();
+        }
 
         // 2. Update Post-processing Settings
         if (app.bloomPass) {
           app.bloomPass.enabled = isGlow;
           if (isGlow) {
-            // Apply specific settings from the theme definition
-            app.bloomPass.threshold = glowConfig.bloomThreshold;
-            app.bloomPass.strength = glowConfig.bloomStrength;
-            app.bloomPass.radius = glowConfig.bloomRadius;
+            app.bloomPass.threshold = themeConfig.bloomThreshold;
+            app.bloomPass.strength = themeConfig.bloomStrength;
+            app.bloomPass.radius = themeConfig.bloomRadius;
           }
         }
 
-        // 3. Update Materials of Existing Cells
-        updateAllCellMaterials();
+        // 3. Handle Minesweeper Texture Generation (only once needed)
+        if (isMinesweeper && !app.minesweeperTextures) {
+            console.log("Generating Minesweeper textures...");
+            generateMinesweeperTextures();
+        }
 
-        // Force GUI update if needed (usually updates automatically)
+        // 4. Update Materials of Existing Cells (skip on initial setup before cells exist)
+        if (!isInitialSetup) {
+            updateAllCellMaterials();
+        }
+
+        // Force GUI update
         if (app.gui) {
             app.gui.__controllers.forEach(controller => {
                 if (controller.property === 'theme') {
@@ -341,6 +380,157 @@
             });
         }
       }
+
+      // --- Minesweeper Texture Generation ---
+      function generateMinesweeperTextures() {
+          const themeConfig = app.themes.Minesweeper;
+          const size = themeConfig.textureSize;
+          const textures = {
+              numbers: {},
+              bomb: null,
+              empty: null,
+              mineBackground: null, // Background for the bomb tile
+          };
+
+          // Empty Tile Texture (Raised look)
+          textures.empty = createMinesweeperBaseTexture(size, themeConfig.cellBackgroundColor, '#ffffff', themeConfig.cellBorderColor);
+
+          // Number Textures (1-8) (Sunken look)
+          const numberBgColor = '#bdbdbd'; // Slightly darker for numbers
+          for (let i = 1; i <= 8; i++) {
+              textures.numbers[i] = createMinesweeperTextTexture(
+                  i.toString(),
+                  themeConfig.numberColors[i - 1],
+                  numberBgColor, // Sunken background
+                  size,
+                  themeConfig.cellBorderColor, // Sunken border dark
+                  '#ffffff' // Sunken border light
+              );
+          }
+
+          // Bomb Texture (Sunken look)
+          textures.mineBackground = createMinesweeperBaseTexture(size, numberBgColor, themeConfig.cellBorderColor, '#ffffff'); // Use sunken background
+          textures.bomb = createMinesweeperBombTexture(size, themeConfig.bombColor, textures.mineBackground); // Draw bomb on sunken bg
+
+          app.minesweeperTextures = textures;
+          console.log("Minesweeper textures generated:", app.minesweeperTextures);
+      }
+
+        // Helper to create the base Minesweeper tile look (raised or sunken)
+        function createMinesweeperBaseTexture(size, bgColor, lightBorder, darkBorder) {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            // Main background
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, size, size);
+
+            // Border
+            const border = Math.max(1, Math.floor(size * 0.05)); // Border width
+            ctx.fillStyle = lightBorder;
+            ctx.fillRect(0, 0, size, border); // Top
+            ctx.fillRect(0, 0, border, size); // Left
+            ctx.fillStyle = darkBorder;
+            ctx.fillRect(0, size - border, size, border); // Bottom
+            ctx.fillRect(size - border, 0, border, size); // Right
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            texture.colorSpace = THREE.SRGBColorSpace; // Important for color accuracy
+            return texture;
+        }
+
+        // Helper to draw text onto a base texture
+        function createMinesweeperTextTexture(text, textColor, bgColor, size, darkBorder, lightBorder) {
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+             // Background and Border (sunken appearance)
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, size, size);
+            const border = Math.max(1, Math.floor(size * 0.05));
+            ctx.fillStyle = darkBorder; // Dark top/left for sunken
+            ctx.fillRect(0, 0, size, border);
+            ctx.fillRect(0, 0, border, size);
+            ctx.fillStyle = lightBorder; // Light bottom/right for sunken
+            ctx.fillRect(0, size - border, size, border);
+            ctx.fillRect(size - border, 0, border, size);
+
+
+            // Text Styling
+            ctx.fillStyle = textColor;
+            ctx.font = `bold ${size * 0.6}px "Courier New", Courier, monospace`; // Classic fixed-width font
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, size / 2, size / 2 + size * 0.05); // Slight vertical offset
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            texture.colorSpace = THREE.SRGBColorSpace;
+            return texture;
+        }
+
+        // Helper to draw a bomb icon onto a base texture
+        function createMinesweeperBombTexture(size, bombColor, baseTexture) {
+             const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+
+            // Draw the base background texture first
+             if (baseTexture && baseTexture.image) {
+                 ctx.drawImage(baseTexture.image, 0, 0, size, size);
+            } else {
+                 console.warn("Base texture missing for bomb");
+                 ctx.fillStyle = '#bdbdbd'; // Fallback background
+                 ctx.fillRect(0, 0, size, size);
+            }
+
+
+            // Draw Bomb (simple circle + fuse)
+            const bombRadius = size * 0.25;
+            const centerX = size / 2;
+            const centerY = size / 2;
+
+            ctx.fillStyle = bombColor;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, bombRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Fuse (simple line)
+            ctx.strokeStyle = bombColor;
+            ctx.lineWidth = Math.max(1, size * 0.04);
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY - bombRadius);
+            ctx.lineTo(centerX + bombRadius * 0.5, centerY - bombRadius * 1.5);
+             // Add a little spark?
+            ctx.lineTo(centerX + bombRadius * 0.6, centerY - bombRadius * 1.6);
+             ctx.lineTo(centerX + bombRadius * 0.5, centerY - bombRadius * 1.7);
+             ctx.lineTo(centerX + bombRadius * 0.4, centerY - bombRadius * 1.6);
+            ctx.stroke();
+
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            texture.colorSpace = THREE.SRGBColorSpace;
+            return texture;
+        }
+
+        // Dispose Minesweeper Textures
+        function disposeMinesweeperTextures() {
+            if (!app.minesweeperTextures) return;
+            console.log("Disposing Minesweeper textures...");
+
+            Object.values(app.minesweeperTextures.numbers).forEach(tex => tex?.dispose());
+            app.minesweeperTextures.bomb?.dispose();
+            app.minesweeperTextures.empty?.dispose();
+            app.minesweeperTextures.mineBackground?.dispose(); // Dispose the background too
+            app.minesweeperTextures = null;
+        }
 
       // Update materials for all contribution cells based on the current theme
       function updateAllCellMaterials() {
@@ -355,31 +545,74 @@
         if (!mesh || !mesh.userData || !mesh.userData.contribution) return;
 
         const { contribution } = mesh.userData;
-        const isGlow = app.currentTheme === "Glow";
-        const glowConfig = app.themes.Glow;
-        const topColor = new THREE.Color(app.config.colors[contribution.contribLevel]);
+        const currentThemeName = app.currentTheme;
+        const themeConfig = app.themes[currentThemeName];
 
-        // Dispose previous material to prevent memory leaks
-        if (mesh.material) {
-          mesh.material.dispose();
-        }
-        // Also dispose the stored original material if it exists
-         if (mesh.userData.originalMaterial && mesh.userData.originalMaterial !== mesh.material) {
+        // Dispose previous material(s) to prevent memory leaks
+        if (mesh.material) mesh.material.dispose();
+        if (mesh.userData.originalMaterial && mesh.userData.originalMaterial !== mesh.material) {
             mesh.userData.originalMaterial.dispose();
         }
+        // Make sure highlight material is also themed if needed, or kept separate
+        // For now, we will reuse the highlightMaterial instance but update its color potentially
 
-        // Create new material based on theme
-        const newMaterial = new THREE.MeshLambertMaterial({
-          vertexColors: true, // Keep vertex colors for gradient
-          emissive: isGlow ? topColor : 0x000000, // Only set emissive for Glow theme
-          emissiveIntensity: isGlow ? glowConfig.emissiveIntensity : 0,
-        });
+
+        let newMaterial;
+
+        if (currentThemeName === 'Minesweeper') {
+            if (!app.minesweeperTextures) {
+                console.error("Minesweeper textures not generated!");
+                // Fallback material
+                newMaterial = new THREE.MeshLambertMaterial({ color: 0xff00ff });
+            } else {
+                let texture;
+                const count = contribution.count;
+                const level = contribution.level; // Level determined by mock data ranges
+
+                if (level >= themeConfig.mineThresholdLevel && count > 0) {
+                    texture = app.minesweeperTextures.bomb;
+                } else if (count > 0) {
+                    // Clamp count to 1-8 for texture index
+                    const numIndex = Math.max(1, Math.min(count, 8));
+                    texture = app.minesweeperTextures.numbers[numIndex];
+                } else {
+                    texture = app.minesweeperTextures.empty;
+                }
+
+                 if (!texture) { // Safety check if a texture failed generation
+                     console.warn("Missing texture for count/level", count, level, "Using empty.");
+                     texture = app.minesweeperTextures.empty;
+                 }
+
+                newMaterial = new THREE.MeshLambertMaterial({
+                    map: texture,
+                    // color: 0xffffff, // Set color to white to avoid tinting the texture
+                });
+            }
+             // Update highlight color for Minesweeper
+            if (mesh.userData.highlightMaterial) {
+                 mesh.userData.highlightMaterial.color.set(themeConfig.cellHighlightColor || 0xffff00); // Use theme's highlight or yellow fallback
+            }
+
+
+        } else { // Standard or Glow themes
+            const isGlow = currentThemeName === "Glow";
+            const topColor = new THREE.Color(themeConfig.colors[contribution.contribLevel]);
+
+            newMaterial = new THREE.MeshLambertMaterial({
+              vertexColors: true, // Use vertex colors for gradient
+              emissive: isGlow ? topColor : 0x000000,
+              emissiveIntensity: isGlow ? themeConfig.emissiveIntensity : 0,
+            });
+
+             // Reset highlight color for non-Minesweeper themes
+            if (mesh.userData.highlightMaterial) {
+                 mesh.userData.highlightMaterial.color.set(themeConfig.highlightColor || 0xffcc00);
+            }
+        }
 
         mesh.material = newMaterial;
         mesh.userData.originalMaterial = newMaterial; // Store reference for hover reset
-
-         // We don't need to re-assign highlightMaterial unless it also needs theming
-        // mesh.userData.highlightMaterial remains the simple yellow Lambert material
       }
 
       function setupEventListeners() {
@@ -390,17 +623,13 @@
           false
         );
 
-        // Button event listeners (remain the same)
+        // Button event listeners
         document.getElementById("load-data").addEventListener("click", () => {
           const usernameInput = document.getElementById("username").value;
           const yearInput = document.getElementById("year").value;
 
-          if (usernameInput) {
-            app.username = usernameInput;
-          }
-          if (yearInput && !isNaN(parseInt(yearInput))) {
-            app.year = parseInt(yearInput);
-          }
+          if (usernameInput) app.username = usernameInput;
+          if (yearInput && !isNaN(parseInt(yearInput))) app.year = parseInt(yearInput);
 
           document.getElementById("loading").style.display = "block";
           clearScene();
@@ -410,7 +639,7 @@
         document
           .getElementById("reset-camera")
           .addEventListener("click", () => {
-             // Reset camera position with animation (remains the same)
+             // Reset camera position with animation
             new TWEEN.Tween(app.camera.position)
               .to({ x: 0, y: 30, z: 40 }, 1000)
               .easing(TWEEN.Easing.Cubic.InOut)
@@ -442,8 +671,14 @@
         document.getElementById("year").value = app.year;
         app.controls.autoRotate = app.config.autoRotate;
         document.getElementById("auto-rotate").checked = app.config.autoRotate;
-        app.controls.target.set(0, 0, 0); // This line should no longer cause an error
-        app.controls.update();
+        // Ensure target exists before setting it
+        if (app.controls && app.controls.target) {
+             app.controls.target.set(0, 0, 0);
+             app.controls.update();
+        } else {
+             console.warn("Controls or target not ready during setupInitialValues");
+        }
+
       }
 
       function animateLoadingText() {
@@ -472,11 +707,7 @@
         if (app.composer) {
           app.composer.setSize(window.innerWidth, window.innerHeight);
         }
-         if (app.bloomPass) {
-            // UnrealBloomPass might need specific handling or EffectComposer handles it
-            // For safety, explicitly set size if required by the pass implementation
-             // bloomPass.setSize(window.innerWidth, window.innerHeight); // Check if needed
-        }
+         // if (app.bloomPass) { } // Handled by composer resize
       }
 
       function onCanvasMouseMove(event) {
@@ -541,8 +772,8 @@
                     count += Math.floor(Math.random() * 8);
                   if (rand > baseProb + 0.3)
                     count += Math.floor(Math.random() * 12);
-                  if (rand > baseProb + 0.4)
-                    count += Math.floor(Math.random() * 15);
+                  if (rand > baseProb + 0.4) // Make level 4 more likely for Minesweeper testing
+                    count += Math.floor(Math.random() * 25); // Increased range
                 }
               }
               tempDays.push({ date, count, dayOfWeek });
@@ -551,13 +782,15 @@
             }
 
             // Define contribution levels based on maxContribs (simplified quartile approach)
+             // Ensure thresholds scale reasonably, even with low maxContribs
             const levelThresholds = [
-              0, // Level 0
-              maxContribs > 0 ? Math.ceil(maxContribs * 0.01) : 1, // Level 1 threshold (at least 1)
-              maxContribs > 0 ? Math.ceil(maxContribs * 0.25) : 2, // Level 2 threshold
-              maxContribs > 0 ? Math.ceil(maxContribs * 0.5) : 3, // Level 3 threshold
-              maxContribs > 0 ? Math.ceil(maxContribs * 0.75) : 4, // Level 4 threshold
+                0, // Level 0 (count == 0)
+                1, // Level 1 starts at count 1
+                maxContribs > 5 ? Math.ceil(maxContribs * 0.20) : 2, // Level 2 threshold
+                maxContribs > 10 ? Math.ceil(maxContribs * 0.45) : 5, // Level 3 threshold
+                maxContribs > 15 ? Math.ceil(maxContribs * 0.70) : 10, // Level 4 threshold
             ];
+
 
             // Second pass to assign levels and calculate weekOfYear
             tempDays.forEach((tempDay) => {
@@ -565,41 +798,36 @@
               let level = 0;
               let contribLevel = "none";
 
-              if (tempDay.count > levelThresholds[4]) {
-                level = 4;
-                contribLevel = "fourth_quartile";
-              } else if (tempDay.count > levelThresholds[3]) {
-                level = 3;
-                contribLevel = "third_quartile";
-              } else if (tempDay.count > levelThresholds[2]) {
-                level = 2;
-                contribLevel = "second_quartile";
-              } else if (tempDay.count > levelThresholds[1]) {
-                level = 1;
-                contribLevel = "first_quartile";
-              } else if (tempDay.count > levelThresholds[0]) {
-                 level = 1; // Assign level 1 even for 1 contribution if threshold is > 1
-                 contribLevel = "first_quartile";
-              }
-              // Refined check: Ensure count > 0 gets at least level 1, handle maxContribs=0 case
-               if (tempDay.count > 0 && level === 0) {
-                   level = 1;
-                   contribLevel = "first_quartile";
-               }
+              // Assign level based on count and thresholds
+               if (tempDay.count >= levelThresholds[4]) {
+                    level = 4;
+                    contribLevel = "fourth_quartile";
+                } else if (tempDay.count >= levelThresholds[3]) {
+                    level = 3;
+                    contribLevel = "third_quartile";
+                } else if (tempDay.count >= levelThresholds[2]) {
+                    level = 2;
+                    contribLevel = "second_quartile";
+                } else if (tempDay.count >= levelThresholds[1]) {
+                    level = 1;
+                    contribLevel = "first_quartile";
+                }
 
 
               // Calculate week of year (consistent with GitHub)
               const firstDayOfYear = new Date(d.getFullYear(), 0, 1);
               const pastDaysOfYear = (d - firstDayOfYear) / 86400000;
-              const weekOfYear = Math.floor(
-                (pastDaysOfYear + firstDayOfYear.getDay()) / 7
-              );
+              // Adjust day offset: Sunday is 0, but GitHub week starts on Sunday.
+              // The calculation needs the day of the *first day* of the year.
+              let weekStartDayOffset = firstDayOfYear.getDay(); // 0=Sun, 1=Mon..
+              const weekOfYear = Math.floor((pastDaysOfYear + weekStartDayOffset) / 7);
+
 
               days.push({
                 date: tempDay.date,
                 count: tempDay.count,
                 level,
-                dayOfWeek: tempDay.dayOfWeek,
+                dayOfWeek: tempDay.dayOfWeek, // 0=Sun, 1=Mon...
                 weekOfYear,
                 contribLevel,
               });
@@ -627,13 +855,15 @@
         const grid = {};
         let maxWeek = 0;
 
+        // Populate grid [week][day] = contribution data
         days.forEach((day) => {
           const weekOfYear = day.weekOfYear;
-          const dayOfWeek = day.dayOfWeek;
+          // Map dayOfWeek (0=Sun) to grid row index (0..6)
+          const dayIndex = day.dayOfWeek; // 0=Sun..6=Sat
           if (weekOfYear >= 0) {
-            if (!grid[weekOfYear]) grid[weekOfYear] = {};
-            grid[weekOfYear][dayOfWeek] = day;
-            maxWeek = Math.max(maxWeek, weekOfYear);
+             if (!grid[weekOfYear]) grid[weekOfYear] = Array(7).fill(null); // Initialize week array
+             grid[weekOfYear][dayIndex] = day;
+             maxWeek = Math.max(maxWeek, weekOfYear);
           } else {
              console.warn("Invalid weekOfYear:", day.date, weekOfYear);
           }
@@ -643,12 +873,14 @@
         const gridWidth = numWeeks * totalSize;
         const gridDepth = 7 * totalSize;
         const offsetX = -gridWidth / 2 + totalSize / 2;
-        const offsetZ = -gridDepth / 2 + totalSize / 2;
+        // Adjust Z offset so Sunday (day 0) is at the bottom visually
+        const offsetZ = gridDepth / 2 - totalSize / 2;
 
         // Create ground plane
         const groundGeometry = new THREE.PlaneGeometry(gridWidth + 10, gridDepth + 10);
         const groundMaterial = new THREE.MeshLambertMaterial({
-          color: 0x10141a, // Slightly lighter than base background
+          // Use a color compatible with Minesweeper theme background
+          color: app.currentTheme === 'Minesweeper' ? 0xa0a0a0 : 0x10141a,
           side: THREE.DoubleSide,
         });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
@@ -656,47 +888,63 @@
         ground.position.y = -0.1;
         ground.receiveShadow = true;
         app.scene.add(ground);
+        app.groundPlane = ground; // Store reference for potential theme updates
+
 
         // Create contribution cells
         for (let week = 0; week <= maxWeek; week++) {
-          for (let day = 0; day < 7; day++) {
+          for (let day = 0; day < 7; day++) { // day is 0 (Sun) to 6 (Sat)
             const contribution = grid[week]?.[day];
             const xPos = offsetX + week * totalSize;
-            const zPos = offsetZ + day * totalSize;
-            if (contribution) {
-              createContributionCell(contribution, xPos, zPos); // Will create cell with current theme material
+            // Calculate zPos where day 0 (Sun) is at the bottom (+Z direction)
+            const zPos = offsetZ - day * totalSize;
+            // Only create a cell if there's data (even 0 contributions)
+             if (contribution !== null) { // Check for null, not just falsy
+               createContributionCell(contribution || { date: `week ${week}, day ${day}`, count: 0, level: 0, contribLevel: 'none'}, xPos, zPos); // Pass dummy data for empty cells if needed, or only create for actual days
+            } else {
+                 // Optionally create placeholder meshes for days before year start / after year end?
+                 // For now, leave empty.
             }
           }
         }
 
-         // Add month labels
+         // Add month labels (Adjust Z position based on new layout)
         let lastMonth = -1;
-        const monthLabelZ = offsetZ + 7 * totalSize + totalSize * 0.5;
+        const monthLabelZ = offsetZ + totalSize * 1.5; // Position above the grid
         days.forEach((day) => {
-            const date = new Date(day.date + "T00:00:00");
-            const month = date.getMonth();
+            if (day.weekOfYear < 0) return; // Skip days with invalid week
+            const date = new Date(day.date + "T00:00:00"); // Ensure UTC interpretation
+            const month = date.getUTCMonth();
             const week = day.weekOfYear;
-            const dayOfMonth = date.getDate();
+             const dayOfMonth = date.getUTCDate();
+
+             // Place label near the start of the month (first week where day <= 7)
             if (month !== lastMonth && dayOfMonth <= 7 && week >= 0) {
-                const monthX = offsetX + week * totalSize;
-                createMonthLabel(date.toLocaleDateString("en-US", { month: "short" }), monthX, monthLabelZ);
-                lastMonth = month;
+                 const monthX = offsetX + week * totalSize;
+                // Ensure label is created only once per month start
+                 if (app.monthLabels.findIndex(label => label.userData.month === month) === -1) {
+                    const label = createMonthLabel(date.toLocaleDateString("en-US", { month: "short" }), monthX, monthLabelZ);
+                    label.userData = { month: month }; // Store month to prevent duplicates
+                    lastMonth = month;
+                 }
             }
         });
 
-        // Add day of week labels
-        const dayLabelX = offsetX - totalSize * 1.5;
+         // Add day of week labels (Adjust X position based on new layout)
+        const dayLabelX = offsetX - totalSize * 1.5; // Position left of the grid
         const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        for (let day = 0; day < 7; day++) {
-            if (day === 1 || day === 3 || day === 5) { // Mon, Wed, Fri
-                createDayLabel(daysOfWeek[day], dayLabelX, offsetZ + day * totalSize);
+        for (let day = 0; day < 7; day++) { // 0=Sun to 6=Sat
+             // Adjust logic to match visual layout (e.g., show Mon, Wed, Fri)
+             if (day === 1 || day === 3 || day === 5) { // Mon, Wed, Fri
+                const zPos = offsetZ - day * totalSize; // Z position corresponds to the row
+                createDayLabel(daysOfWeek[day], dayLabelX, zPos);
             }
         }
 
         document.getElementById("loading").style.display = "none";
         if (app.loadingInterval) clearInterval(app.loadingInterval);
 
-        // Center camera (remains the same)
+        // Center camera (remains the same, assuming center is still 0,0,0)
         const centerTarget = new THREE.Vector3(0, 0, 0);
         new TWEEN.Tween(app.controls.target)
           .to({ x: centerTarget.x, y: centerTarget.y, z: centerTarget.z }, 800)
@@ -704,6 +952,7 @@
           .onUpdate(() => app.controls.update())
           .start();
         new TWEEN.Tween(app.camera.position)
+          // Adjust camera position slightly based on grid size maybe?
           .to({ x: centerTarget.x, y: 35, z: centerTarget.z + gridDepth * 0.8 }, 1000)
           .easing(TWEEN.Easing.Cubic.Out)
           .start();
@@ -712,43 +961,55 @@
       // Create a single contribution cell
       function createContributionCell(contribution, x, z) {
         const cellSize = app.config.cellSize;
-        const baseHeight = 0.1;
-        const scaledHeight = contribution.count * 0.1 * app.config.heightScale;
+         // Make base height very small for Minesweeper, slightly larger otherwise
+        const baseHeight = app.currentTheme === 'Minesweeper' ? 0.01 : 0.1;
+        const scaledHeight = Math.max(0, contribution.count * 0.1 * app.config.heightScale); // Ensure non-negative
         const totalHeight = baseHeight + scaledHeight;
 
-        const geometry = new THREE.BoxGeometry(cellSize, 1, cellSize);
-        geometry.translate(0, 0.5, 0);
+        const geometry = new THREE.BoxGeometry(cellSize, 1, cellSize); // Height is 1, scaled later
+        geometry.translate(0, 0.5, 0); // Pivot at base
 
-        // --- Vertex Colors for Gradient ---
-        const positionAttribute = geometry.attributes.position;
-        const colors = [];
-        const topColor = new THREE.Color(app.config.colors[contribution.contribLevel]);
-        const bottomColor = contribution.level === 0 ? topColor.clone() : topColor.clone().multiplyScalar(0.6);
-        for (let i = 0; i < positionAttribute.count; i++) {
-          const y = positionAttribute.getY(i);
-          colors.push( (y > 0 ? topColor : bottomColor).r, (y > 0 ? topColor : bottomColor).g, (y > 0 ? topColor : bottomColor).b);
+        // --- Conditional Vertex Colors ---
+        if (app.currentTheme !== 'Minesweeper') {
+            const positionAttribute = geometry.attributes.position;
+            const colors = [];
+            const themeConfig = app.themes[app.currentTheme];
+            const topColor = new THREE.Color(themeConfig.colors[contribution.contribLevel || 'none']);
+            // Darken bottom color unless it's level 0 (already dark)
+            const bottomColor = contribution.level === 0 ? topColor.clone() : topColor.clone().multiplyScalar(0.6);
+
+            for (let i = 0; i < positionAttribute.count; i++) {
+              const y = positionAttribute.getY(i);
+              // Apply top color to top face vertices (y > 0 after translate), bottom color otherwise
+              const color = y > 0 ? topColor : bottomColor;
+              colors.push(color.r, color.g, color.b);
+            }
+            geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+        } else {
+             // Ensure color attribute is removed if switching TO minesweeper from another theme
+             if (geometry.attributes.color) {
+                 geometry.deleteAttribute('color');
+             }
         }
-        geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-        // --- End Vertex Colors ---
+        // --- End Conditional Vertex Colors ---
 
         // Material is set by updateSingleCellMaterial based on the current theme
-        const mesh = new THREE.Mesh(geometry, null); // Material will be assigned shortly
+        const mesh = new THREE.Mesh(geometry, null); // Material assigned by updateSingleCellMaterial
         mesh.position.set(x, 0, z);
         mesh.scale.y = totalHeight;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
 
-        // Simple material for highlighting (independent of theme for now)
-         const highlightMaterial = new THREE.MeshLambertMaterial({
-            color: app.config.highlightColor,
-            // No emissive for highlight unless desired
+        // Shared highlight material instance (color updated by theme)
+        const highlightMaterial = new THREE.MeshLambertMaterial({
+            color: app.themes[app.currentTheme]?.highlightColor || app.config.highlightColor,
         });
 
 
         mesh.userData = {
           contribution: contribution,
-          originalMaterial: null, // Will be set by updateSingleCellMaterial
-          highlightMaterial: highlightMaterial,
+          originalMaterial: null, // Set by updateSingleCellMaterial
+          highlightMaterial: highlightMaterial, // Reuse this instance
           originalHeight: totalHeight,
         };
 
@@ -768,7 +1029,7 @@
         const fontSize = baseFontSize * scaleFactor;
         canvas.width = 64 * scaleFactor;
         canvas.height = 32 * scaleFactor;
-        context.fillStyle = "#c9d1d9";
+        context.fillStyle = "#c9d1d9"; // Standard color, check if needs theme adjustment
         context.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif`;
         context.textAlign = "center";
         context.textBaseline = "middle";
@@ -776,12 +1037,14 @@
         context.fillText(text, canvas.width / 2, canvas.height / 2);
         const texture = new THREE.CanvasTexture(canvas);
         texture.needsUpdate = true;
+        texture.colorSpace = THREE.SRGBColorSpace; // Specify color space
         const material = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9 });
         const sprite = new THREE.Sprite(material);
         sprite.position.set(x, 0.3, z);
         sprite.scale.set(3, 1.5, 1);
         app.scene.add(sprite);
         app.monthLabels.push(sprite);
+        return sprite; // Return sprite for potential userData storage
       }
 
        function createDayLabel(text, x, z) {
@@ -792,7 +1055,7 @@
         const fontSize = baseFontSize * scaleFactor;
         canvas.width = 48 * scaleFactor;
         canvas.height = 24 * scaleFactor;
-        context.fillStyle = "#c9d1d9";
+        context.fillStyle = "#c9d1d9"; // Standard color, check if needs theme adjustment
         context.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif`;
         context.textAlign = "center";
         context.textBaseline = "middle";
@@ -800,69 +1063,79 @@
         context.fillText(text, canvas.width / 2, canvas.height / 2);
         const texture = new THREE.CanvasTexture(canvas);
         texture.needsUpdate = true;
+        texture.colorSpace = THREE.SRGBColorSpace; // Specify color space
         const material = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9 });
         const sprite = new THREE.Sprite(material);
         sprite.position.set(x, 0.3, z);
         sprite.scale.set(2.5, 1.25, 1);
         app.scene.add(sprite);
         app.weekLabels.push(sprite);
-      }
+       }
 
 
-      // Update heights (remains the same)
+      // Update heights
       function updateHeights() {
-        const baseHeight = 0.1;
+         const baseHeight = app.currentTheme === 'Minesweeper' ? 0.01 : 0.1;
         app.contributionMeshes.forEach((mesh) => {
           const { contribution } = mesh.userData;
-          const scaledHeight = contribution.count * 0.1 * app.config.heightScale;
+          const scaledHeight = Math.max(0, contribution.count * 0.1 * app.config.heightScale);
           const newTotalHeight = baseHeight + scaledHeight;
-          mesh.scale.y = newTotalHeight;
+           // Animate height change? Optional.
+           // new TWEEN.Tween(mesh.scale).to({ y: newTotalHeight }, 300).easing(TWEEN.Easing.Quadratic.Out).start();
+          mesh.scale.y = newTotalHeight; // Direct update for now
         });
       }
 
-      // Clear scene (Update to dispose materials properly)
+      // Clear scene (Update to dispose materials AND textures)
       function clearScene() {
-        // Remove contribution meshes and dispose materials
+        // Remove contribution meshes and dispose materials/geometry
         while (app.contributionMeshes.length > 0) {
             const mesh = app.contributionMeshes.pop();
             if (mesh.parent) mesh.parent.remove(mesh);
-            mesh.geometry.dispose();
-            // Dispose the current material
-            if (mesh.material) mesh.material.dispose();
-            // Dispose the stored original material (might be the same instance, but dispose is safe)
+             if (mesh.geometry) mesh.geometry.dispose();
+             // Dispose the current material
+             if (mesh.material) mesh.material.dispose();
+            // Dispose the stored original material (might be the same instance)
             if (mesh.userData.originalMaterial) mesh.userData.originalMaterial.dispose();
-            // Dispose the highlight material
-            if (mesh.userData.highlightMaterial) mesh.userData.highlightMaterial.dispose();
+            // Dispose the highlight material (if unique instances were created, otherwise careful)
+             // Since we reuse the highlightMaterial instance, only dispose if sure it's not needed
+             // Or better: don't dispose highlightMaterial here, manage it separately if needed.
+             // Let's assume highlightMaterial instance is managed elsewhere or reused.
+            mesh.userData = null; // Help GC
         }
-        app.contributionMeshes = []; // Ensure array is empty
+        app.contributionMeshes = [];
 
-        // Remove month labels
+        // Remove month labels and dispose textures/materials
         while (app.monthLabels.length > 0) {
           const label = app.monthLabels.pop();
           if (label.parent) label.parent.remove(label);
           if (label.material.map) label.material.map.dispose();
-          label.material.dispose();
+          if (label.material) label.material.dispose();
         }
          app.monthLabels = [];
 
-        // Remove day labels
+        // Remove day labels and dispose textures/materials
         while (app.weekLabels.length > 0) {
           const label = app.weekLabels.pop();
           if (label.parent) label.parent.remove(label);
           if (label.material.map) label.material.map.dispose();
-          label.material.dispose();
+          if (label.material) label.material.dispose();
         }
         app.weekLabels = [];
 
-        // Remove ground plane and other potential objects
-        const objectsToRemove = app.scene.children.filter(child =>
-            child instanceof THREE.Mesh && child.geometry instanceof THREE.PlaneGeometry
-        );
-        objectsToRemove.forEach(child => {
-            if (child.parent) child.parent.remove(child);
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) child.material.dispose();
-        });
+        // Remove ground plane
+         if (app.groundPlane) {
+            if (app.groundPlane.parent) app.groundPlane.parent.remove(app.groundPlane);
+            if (app.groundPlane.geometry) app.groundPlane.geometry.dispose();
+            if (app.groundPlane.material) app.groundPlane.material.dispose();
+            app.groundPlane = null;
+        }
+
+        // Dispose Minesweeper textures if they exist
+        // Don't dispose here if switching themes, only when unloading fully?
+        // Let's dispose them here for a clean slate on data reload.
+        disposeMinesweeperTextures();
+
 
         // Reset hover info
         document.getElementById("hover-info").textContent = "Hover over a cell to see details";
@@ -877,25 +1150,37 @@
         app.controls.update();
         TWEEN.update();
 
-        // --- Raycasting (remains mostly the same) ---
+        // --- Raycasting ---
         app.raycaster.setFromCamera(app.mouse, app.camera);
         const intersects = app.raycaster.intersectObjects(app.contributionMeshes, false);
 
         let intersectedObject = null;
         if (intersects.length > 0) {
-            for (let i = 0; i < intersects.length; i++) {
-                if (intersects[i].object.userData?.contribution) {
+            // Find the first intersected object that is a contribution cell
+             for (let i = 0; i < intersects.length; i++) {
+                if (intersects[i].object?.userData?.contribution) {
                     intersectedObject = intersects[i].object;
                     break;
                 }
             }
         }
 
+
         // Handle hover out
         if (app.hoveredCell && app.hoveredCell !== intersectedObject) {
-            // Restore the THEMED original material
+             // Restore the THEMED original material only if it exists
             if (app.hoveredCell.userData?.originalMaterial) {
-                app.hoveredCell.material = app.hoveredCell.userData.originalMaterial;
+                 // Check if material still exists (might have been disposed during theme switch/clear)
+                try {
+                    app.hoveredCell.material = app.hoveredCell.userData.originalMaterial;
+                } catch (e) {
+                    console.warn("Failed to restore original material, likely disposed.", e);
+                     // Optionally try to re-apply material based on current theme
+                     // updateSingleCellMaterial(app.hoveredCell);
+                }
+
+            } else {
+                 console.warn("Hovered out cell missing original material reference.");
             }
             app.hoveredCell = null;
             document.getElementById("hover-info").textContent = "Hover over a cell to see details";
@@ -903,22 +1188,39 @@
 
         // Handle hover in
         if (intersectedObject && app.hoveredCell !== intersectedObject) {
-             // Ensure previous hover is cleared BEFORE applying new highlight
+            // Ensure previous hover is cleared BEFORE applying new highlight
             if (app.hoveredCell && app.hoveredCell.userData?.originalMaterial) {
-                 app.hoveredCell.material = app.hoveredCell.userData.originalMaterial;
+                 try {
+                    app.hoveredCell.material = app.hoveredCell.userData.originalMaterial;
+                 } catch(e) { /* ignore if disposed */ }
             }
 
             app.hoveredCell = intersectedObject;
-            // Apply highlight material
+            // Apply THEMED highlight material
             if (app.hoveredCell.userData?.highlightMaterial) {
+                 // Ensure highlight material color is up-to-date with current theme
+                const themeConfig = app.themes[app.currentTheme];
+                app.hoveredCell.userData.highlightMaterial.color.set(
+                     app.currentTheme === 'Minesweeper'
+                         ? themeConfig.cellHighlightColor
+                         : (themeConfig.highlightColor || app.config.highlightColor)
+                 );
                 app.hoveredCell.material = app.hoveredCell.userData.highlightMaterial;
+            } else {
+                 console.warn("Hovered cell missing highlight material reference.");
             }
+
 
             // Update info display
             const { contribution } = app.hoveredCell.userData;
-            const date = new Date(contribution.date + "T00:00:00");
-            const formattedDate = date.toLocaleDateString("en-US", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-            document.getElementById("hover-info").innerHTML = `<strong>${formattedDate}</strong><br>${contribution.count} contribution${contribution.count !== 1 ? 's' : ''}`;
+            if (contribution) {
+                 const date = new Date(contribution.date + "T00:00:00"); // Use UTC date
+                const formattedDate = date.toLocaleDateString("en-US", { timeZone: 'UTC', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                document.getElementById("hover-info").innerHTML = `<strong>${formattedDate}</strong><br>${contribution.count} contribution${contribution.count !== 1 ? 's' : ''}`;
+            } else {
+                 document.getElementById("hover-info").textContent = "No data for this cell.";
+            }
+
         }
         // --- End Raycasting ---
 
@@ -934,6 +1236,7 @@
 
 
       // == OrbitControls Implementation ==
+      // [ ... OrbitControls code remains exactly the same ... ]
       // == OrbitControls Implementation ==
       // Using a slightly modified version to ensure compatibility and avoid global conflicts
       THREE.OrbitControls = function (object, domElement) {
@@ -1170,7 +1473,7 @@
           document.removeEventListener("mousemove", onDocumentMouseMove, false); // Use correct name
           document.removeEventListener("mouseup", onDocumentMouseUp, false); // Use correct name
 
-          scope.domElement.removeEventListener("keydown", onKeyDown, false);
+          window.removeEventListener("keydown", onKeyDown, false); // Listen on window
 
           //scope.dispatchEvent( { type: 'dispose' } ); // should be added to code base according to https://github.com/mrdoob/three.js/pull/1517
         };
@@ -1436,10 +1739,13 @@
           event.preventDefault();
 
           if (state === STATE.ROTATE) {
+            if (scope.enableRotate === false) return;
             handleMouseMoveRotate(event);
           } else if (state === STATE.DOLLY) {
+             if (scope.enableZoom === false) return;
             handleMouseMoveDolly(event);
           } else if (state === STATE.PAN) {
+             if (scope.enablePan === false) return;
             handleMouseMovePan(event);
           }
         }
@@ -1450,39 +1756,29 @@
           event.preventDefault();
 
           switch (event.button) {
-            case scope.mouseButtons.LEFT:
-              if (event.ctrlKey || event.metaKey || event.shiftKey) {
-                if (scope.enablePan === false) return;
+            case scope.mouseButtons.LEFT: // Default: Rotate
+                 // Modifier check for Pan (Shift/Ctrl/Meta)
+                 if (event.ctrlKey || event.metaKey || event.shiftKey) {
+                    if (scope.enablePan === false) return;
+                    handleMouseDownPan(event);
+                    state = STATE.PAN;
+                 } else { // No modifier: Rotate
+                    if (scope.enableRotate === false) return;
+                    handleMouseDownRotate(event);
+                    state = STATE.ROTATE;
+                 }
+                break;
 
-                handleMouseDownPan(event);
-
-                state = STATE.PAN;
-              } else {
-                if (scope.enableRotate === false) return;
-
-                handleMouseDownRotate(event);
-
-                state = STATE.ROTATE;
-              }
-
-              break;
-
-            case scope.mouseButtons.MIDDLE:
+            case scope.mouseButtons.MIDDLE: // Default: Dolly
               if (scope.enableZoom === false) return;
-
               handleMouseDownDolly(event);
-
               state = STATE.DOLLY;
-
               break;
 
-            case scope.mouseButtons.RIGHT:
+            case scope.mouseButtons.RIGHT: // Default: Pan
               if (scope.enablePan === false) return;
-
               handleMouseDownPan(event);
-
               state = STATE.PAN;
-
               break;
 
             default:
@@ -1502,7 +1798,7 @@
           if (
             scope.enabled === false ||
             scope.enableZoom === false ||
-            (state !== STATE.NONE && state !== STATE.ROTATE)
+            (state !== STATE.NONE && state !== STATE.ROTATE) // Allow zoom while rotating? Maybe not.
           )
             return;
 
@@ -1510,18 +1806,24 @@
           event.stopPropagation();
 
           scope.dispatchEvent(startEvent);
-
           handleMouseWheel(event);
-
           scope.dispatchEvent(endEvent);
         }
 
         function handleMouseWheel(event) {
-          if (event.deltaY < 0) {
-            dollyOut(getZoomScale());
-          } else if (event.deltaY > 0) {
-            dollyIn(getZoomScale());
-          }
+             // Normalize deltaY value across browsers
+            let delta = 0;
+            if (event.wheelDelta) { // Old WebKit
+                delta = -event.wheelDelta / 120;
+            } else if (event.deltaY) { // Modern standard
+                delta = event.deltaY / 3; // Adjust sensitivity?
+            }
+
+            if (delta < 0) {
+                dollyOut(getZoomScale());
+            } else if (delta > 0) {
+                dollyIn(getZoomScale());
+            }
 
           scope.update();
         }
@@ -1565,7 +1867,6 @@
           if (needsUpdate) {
             // prevent the browser from scrolling on cursor keys
             event.preventDefault();
-
             scope.update();
           }
         }
@@ -1578,21 +1879,14 @@
           switch (event.touches.length) {
             case 1: // one-fingered touch: rotate
               if (scope.enableRotate === false) return;
-
               handleTouchStartRotate(event);
-
               state = STATE.TOUCH_ROTATE;
-
               break;
 
             case 2: // two-fingered touch: dolly-pan
-              if (scope.enableZoom === false && scope.enablePan === false)
-                return;
-
+              if (scope.enableZoom === false && scope.enablePan === false) return;
               handleTouchStartDollyPan(event);
-
               state = STATE.TOUCH_DOLLY_PAN;
-
               break;
 
             default:
@@ -1612,16 +1906,13 @@
           if (scope.enableZoom) {
             var dx = event.touches[0].pageX - event.touches[1].pageX;
             var dy = event.touches[0].pageY - event.touches[1].pageY;
-
             var distance = Math.sqrt(dx * dx + dy * dy);
-
             dollyStart.set(0, distance);
           }
 
           if (scope.enablePan) {
             var x = 0.5 * (event.touches[0].pageX + event.touches[1].pageX);
             var y = 0.5 * (event.touches[0].pageY + event.touches[1].pageY);
-
             panStart.set(x, y);
           }
         }
@@ -1635,19 +1926,14 @@
           switch (event.touches.length) {
             case 1: // one-fingered touch: rotate
               if (scope.enableRotate === false) return;
-              if (state !== STATE.TOUCH_ROTATE) return; // is this needed?
-
+              if (state !== STATE.TOUCH_ROTATE) return;
               handleTouchMoveRotate(event);
-
               break;
 
             case 2: // two-fingered touch: dolly-pan
-              if (scope.enableZoom === false && scope.enablePan === false)
-                return;
-              if (state !== STATE.TOUCH_DOLLY_PAN) return; // is this needed?
-
+              if (scope.enableZoom === false && scope.enablePan === false) return;
+              if (state !== STATE.TOUCH_DOLLY_PAN) return;
               handleTouchMoveDollyPan(event);
-
               break;
 
             default:
@@ -1657,22 +1943,11 @@
 
         function handleTouchMoveRotate(event) {
           rotateEnd.set(event.touches[0].pageX, event.touches[0].pageY);
-
-          rotateDelta
-            .subVectors(rotateEnd, rotateStart)
-            .multiplyScalar(scope.rotateSpeed);
-
-          var element =
-            scope.domElement === document
-              ? scope.domElement.body
-              : scope.domElement;
-
+          rotateDelta.subVectors(rotateEnd, rotateStart).multiplyScalar(scope.rotateSpeed);
+          var element = scope.domElement === document ? scope.domElement.body : scope.domElement;
           rotateLeft((2 * Math.PI * rotateDelta.x) / element.clientHeight); // yes, height
-
           rotateUp((2 * Math.PI * rotateDelta.y) / element.clientHeight);
-
           rotateStart.copy(rotateEnd);
-
           scope.update();
         }
 
@@ -1680,65 +1955,47 @@
           if (scope.enableZoom) {
             var dx = event.touches[0].pageX - event.touches[1].pageX;
             var dy = event.touches[0].pageY - event.touches[1].pageY;
-
             var distance = Math.sqrt(dx * dx + dy * dy);
-
             dollyEnd.set(0, distance);
-
-            dollyDelta.set(
-              0,
-              Math.pow(dollyEnd.y / dollyStart.y, scope.zoomSpeed)
-            );
-
-            dollyIn(dollyDelta.y);
-
-            dollyStart.copy(dollyEnd);
+            dollyDelta.set(0, Math.pow(dollyEnd.y / dollyStart.y, scope.zoomSpeed)); // Calculate dolly delta
+            dollyIn(dollyDelta.y); // Apply dolly
+            dollyStart.copy(dollyEnd); // Update start point
           }
 
           if (scope.enablePan) {
             var x = 0.5 * (event.touches[0].pageX + event.touches[1].pageX);
             var y = 0.5 * (event.touches[0].pageY + event.touches[1].pageY);
-
             panEnd.set(x, y);
-
-            panDelta
-              .subVectors(panEnd, panStart)
-              .multiplyScalar(scope.panSpeed);
-
+            panDelta.subVectors(panEnd, panStart).multiplyScalar(scope.panSpeed);
             pan(panDelta.x, panDelta.y);
-
             panStart.copy(panEnd);
           }
-
           scope.update();
         }
 
+
         function onTouchEnd(/*event*/) {
           if (scope.enabled === false) return;
-
           scope.dispatchEvent(endEvent);
-
           state = STATE.NONE;
         }
 
         function onContextMenu(event) {
           if (scope.enabled === false) return;
-
           event.preventDefault();
         }
 
         // Add event listeners to the domElement
         scope.domElement.addEventListener("contextmenu", onContextMenu, false);
-
         scope.domElement.addEventListener("mousedown", onMouseDown, false);
-        scope.domElement.addEventListener("wheel", onMouseWheel, false);
+        scope.domElement.addEventListener("wheel", onMouseWheel, { passive: false }); // Use passive: false if calling preventDefault
 
-        scope.domElement.addEventListener("touchstart", onTouchStart, false);
+        scope.domElement.addEventListener("touchstart", onTouchStart, { passive: false }); // Use passive: false
         scope.domElement.addEventListener("touchend", onTouchEnd, false);
-        scope.domElement.addEventListener("touchmove", onTouchMove, false);
+        scope.domElement.addEventListener("touchmove", onTouchMove, { passive: false }); // Use passive: false
 
         // Listen to window for keydown event
-        window.addEventListener("keydown", onKeyDown, false); // Changed from scope.domElement
+        window.addEventListener("keydown", onKeyDown, false);
 
         // force an update at start
         this.update();
@@ -1748,15 +2005,6 @@
         THREE.EventDispatcher.prototype
       );
       THREE.OrbitControls.prototype.constructor = THREE.OrbitControls;
-
-      // Add event for Vector3 clamp
-      // (This seems unnecessary as Vector3 already has clamp, min, max methods in r128)
-      // THREE.Vector3.prototype.clamp = function(min, max) {
-      //     this.x = Math.max(min.x, Math.min(max.x, this.x));
-      //     this.y = Math.max(min.y, Math.min(max.y, this.y));
-      //     this.z = Math.max(min.z, Math.min(max.z, this.z));
-      //     return this;
-      // };
 
       // Start application
       init();
