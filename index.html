@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GitHub Contributions 3D Map</title>
     <style>
+      /* ... (keep existing styles) ... */
       body {
         margin: 0;
         padding: 0;
@@ -62,6 +63,13 @@
       label {
         margin-left: 10px;
       }
+      /* Style for dat.GUI */
+      .dg.main {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 200; /* Ensure it's above other elements */
+      }
     </style>
   </head>
   <body>
@@ -95,15 +103,21 @@
       </div>
     </div>
 
+    <!-- Include Three.js and dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Include Post-processing scripts -->
+    <!-- Make sure these paths are correct or use CDN links if available -->
+    <!-- Example using local paths (replace with your actual paths or CDNs) -->
     <script src="js/vendor/three/postprocessing/EffectComposer.js"></script>
     <script src="js/vendor/three/postprocessing/RenderPass.js"></script>
     <script src="js/vendor/three/postprocessing/ShaderPass.js"></script>
     <script src="js/vendor/three/shaders/CopyShader.js"></script>
     <script src="js/vendor/three/shaders/LuminosityHighPassShader.js"></script>
     <script src="js/vendor/three/postprocessing/UnrealBloomPass.js"></script>
+    <!-- Include dat.GUI and Tween.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+
     <script>
       // Main application
       const app = {
@@ -111,7 +125,9 @@
         camera: null,
         renderer: null,
         controls: null,
-        composer: null,
+        composer: null, // For post-processing
+        bloomPass: null, // Reference to the bloom pass
+        gui: null, // For dat.GUI controls
         raycaster: new THREE.Raycaster(),
         mouse: new THREE.Vector2(),
         contributionData: null,
@@ -124,31 +140,61 @@
           heightScale: 1,
           autoRotate: true,
           baseColor: 0x0d1117,
-          // Green shades, darker for more contributions (GitHub style)
           colors: {
-            none: 0x161b22, // Dark grey for no contributions
-            first_quartile: 0x0e4429, // Darkest green
-            second_quartile: 0x006d32, // Medium green
-            third_quartile: 0x26a641, // Brighter green
-            fourth_quartile: 0x39d353, // Brightest green
+            none: 0x161b22,
+            first_quartile: 0x0e4429,
+            second_quartile: 0x006d32,
+            third_quartile: 0x26a641,
+            fourth_quartile: 0x39d353,
           },
-          highlightColor: 0xffcc00, // Changed highlight to yellow for better contrast
+          highlightColor: 0xffcc00,
         },
         hoveredCell: null,
         username: "torvalds", // Default username
         year: new Date().getFullYear(), // Default year is current year
+
+        // --- Theme Management ---
+        currentTheme: "Standard", // Default theme
+        themes: {
+          Standard: {
+            name: "Standard",
+          },
+          Glow: {
+            name: "Glow",
+            // Store theme-specific settings if needed
+            bloomStrength: 1.0,
+            bloomRadius: 0.8,
+            bloomThreshold: 0.3,
+            toneMappingExposure: 1.5,
+            emissiveIntensity: 0.1,
+          },
+          // Add more themes here later
+          // Example:
+          // 'Minimal': {
+          //     name: 'Minimal',
+          //     /* settings */
+          // }
+        },
+        themeSettings: {
+          // This object will be controlled by dat.GUI
+          theme: "Standard",
+        },
+        // --- End Theme Management ---
       };
 
       // Initialize the application
       function init() {
         setupThreeJS();
+        setupPostProcessing(); // Setup composer and passes
+        setupGUI(); // Setup dat.GUI controls
         setupEventListeners();
         setupInitialValues();
+        applyTheme(app.currentTheme); // Apply the initial theme
         animateLoadingText();
         fetchContributionsData();
       }
 
-      // Setup Three.js scene
+      // Setup Three.js scene, camera, renderer, lights, controls
       function setupThreeJS() {
         // Create scene
         app.scene = new THREE.Scene();
@@ -168,23 +214,19 @@
         app.renderer = new THREE.WebGLRenderer({ antialias: true });
         app.renderer.setSize(window.innerWidth, window.innerHeight);
         app.renderer.shadowMap.enabled = true;
-
-        // Tone mapping can improve bloom appearance
-        app.renderer.toneMapping = THREE.ReinhardToneMapping;
-        app.renderer.toneMappingExposure = 1.5; // Adjust exposure if needed
-
+        // Tone mapping will be set by applyTheme
+        // app.renderer.toneMapping = THREE.ReinhardToneMapping;
+        // app.renderer.toneMappingExposure = 1.5;
         document.body.appendChild(app.renderer.domElement);
 
-        // Add lights
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Slightly increased ambient light
+        // Add lights (remains the same)
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         app.scene.add(ambientLight);
-
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.9); // Slightly increased directional light
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.9);
         directionalLight.position.set(30, 50, 30);
         directionalLight.castShadow = true;
         directionalLight.shadow.mapSize.width = 2048;
         directionalLight.shadow.mapSize.height = 2048;
-        // Adjust shadow camera bounds if needed
         directionalLight.shadow.camera.left = -60;
         directionalLight.shadow.camera.right = 60;
         directionalLight.shadow.camera.top = 60;
@@ -192,11 +234,8 @@
         directionalLight.shadow.camera.near = 1;
         directionalLight.shadow.camera.far = 150;
         app.scene.add(directionalLight);
-        // Optional: Add a light helper
-        // const shadowHelper = new THREE.CameraHelper(directionalLight.shadow.camera);
-        // app.scene.add(shadowHelper);
 
-        // OrbitControls for camera manipulation
+        // OrbitControls (remains the same)
         app.controls = new THREE.OrbitControls(
           app.camera,
           app.renderer.domElement
@@ -206,43 +245,152 @@
         app.controls.screenSpacePanning = false;
         app.controls.minDistance = 10;
         app.controls.maxDistance = 100;
-        app.controls.maxPolarAngle = Math.PI / 1.8; // Slightly allow looking more from top down
-
-        // Post-processing Setup
-        app.composer = new THREE.EffectComposer(app.renderer);
-
-        // 1. Render Pass - Renders the original scene
-        const renderPass = new THREE.RenderPass(app.scene, app.camera);
-        app.composer.addPass(renderPass);
-
-        // 2. Unreal Bloom Pass - Adds the glow effect
-        const bloomPass = new THREE.UnrealBloomPass(
-          new THREE.Vector2(window.innerWidth, window.innerHeight),
-          1.5, // strength - Adjust this (lower = subtler)
-          0.4, // radius - Adjust this (controls spread)
-          0.85 // threshold - Adjust this (lower = more things glow)
-        );
-        // --- Tune these bloom parameters ---
-        bloomPass.threshold = 0.3; // <-- Lower this drastically first (e.g., 0.1 to 0.5)
-            bloomPass.strength = 1.0;  // <-- Ensure strength isn't zero (e.g., 0.8 to 1.5)
-            bloomPass.radius = 0.5;    // <-- Keep radius reasonable (e.g., 0.3 to 0.8)
-        // --- End Tuning ---
-
-        app.composer.addPass(bloomPass);
+        app.controls.maxPolarAngle = Math.PI / 1.8;
 
         // Handle window resize
         window.addEventListener("resize", onWindowResize, false);
       }
 
+      // Setup Post-Processing Effects (Composer and Passes)
+      function setupPostProcessing() {
+        app.composer = new THREE.EffectComposer(app.renderer);
+
+        const renderPass = new THREE.RenderPass(app.scene, app.camera);
+        app.composer.addPass(renderPass);
+
+        // Initialize bloom pass but its parameters will be set by the theme
+        app.bloomPass = new THREE.UnrealBloomPass(
+          new THREE.Vector2(window.innerWidth, window.innerHeight),
+          1.0, // strength (will be overridden by theme)
+          0.5, // radius (will be overridden by theme)
+          0.3 // threshold (will be overridden by theme)
+        );
+        app.composer.addPass(app.bloomPass);
+
+        // Initially disable bloom pass if default theme is not Glow
+        app.bloomPass.enabled = app.currentTheme === "Glow";
+      }
+
+       // Setup dat.GUI controls
+       function setupGUI() {
+        app.gui = new dat.GUI();
+        app.gui.domElement.classList.add('main'); // Optional: for specific styling
+
+        // Get theme names for the dropdown
+        const themeNames = Object.keys(app.themes);
+
+        // Add theme selection controller
+        app.gui.add(app.themeSettings, 'theme', themeNames)
+          .name('Theme')
+          .onChange((value) => {
+            applyTheme(value);
+          });
+
+        // Optional: Add controls for Glow theme parameters if you want runtime tuning
+        // const glowFolder = app.gui.addFolder('Glow Settings');
+        // glowFolder.add(app.themes.Glow, 'bloomThreshold', 0.0, 1.0).onChange(value => { if (app.currentTheme === 'Glow') app.bloomPass.threshold = value; });
+        // glowFolder.add(app.themes.Glow, 'bloomStrength', 0.0, 3.0).onChange(value => { if (app.currentTheme === 'Glow') app.bloomPass.strength = value; });
+        // glowFolder.add(app.themes.Glow, 'bloomRadius', 0.0, 1.0).onChange(value => { if (app.currentTheme === 'Glow') app.bloomPass.radius = value; });
+        // glowFolder.add(app.themes.Glow, 'toneMappingExposure', 0.1, 2.0).onChange(value => { if (app.currentTheme === 'Glow') app.renderer.toneMappingExposure = value; });
+        // glowFolder.add(app.themes.Glow, 'emissiveIntensity', 0.0, 1.0).onChange(value => { if (app.currentTheme === 'Glow') updateAllCellMaterials(); });
+        // glowFolder.open(); // Optional: Open the folder by default
+      }
+
+      // Apply a specific theme
+      function applyTheme(themeName) {
+        if (!app.themes[themeName]) {
+          console.warn(`Theme "${themeName}" not found.`);
+          return;
+        }
+
+        console.log(`Applying theme: ${themeName}`);
+        app.currentTheme = themeName;
+        app.themeSettings.theme = themeName; // Sync GUI state if changed programmatically
+
+        const isGlow = themeName === "Glow";
+        const glowConfig = app.themes.Glow; // Get glow settings
+
+        // 1. Update Renderer Settings
+        app.renderer.toneMapping = isGlow
+          ? THREE.ReinhardToneMapping
+          : THREE.NoToneMapping; // Or LinearToneMapping if preferred for Standard
+        app.renderer.toneMappingExposure = isGlow
+          ? glowConfig.toneMappingExposure
+          : 1.0; // Default exposure
+
+        // 2. Update Post-processing Settings
+        if (app.bloomPass) {
+          app.bloomPass.enabled = isGlow;
+          if (isGlow) {
+            // Apply specific settings from the theme definition
+            app.bloomPass.threshold = glowConfig.bloomThreshold;
+            app.bloomPass.strength = glowConfig.bloomStrength;
+            app.bloomPass.radius = glowConfig.bloomRadius;
+          }
+        }
+
+        // 3. Update Materials of Existing Cells
+        updateAllCellMaterials();
+
+        // Force GUI update if needed (usually updates automatically)
+        if (app.gui) {
+            app.gui.__controllers.forEach(controller => {
+                if (controller.property === 'theme') {
+                    controller.updateDisplay();
+                }
+            });
+        }
+      }
+
+      // Update materials for all contribution cells based on the current theme
+      function updateAllCellMaterials() {
+        // console.log("Updating materials for theme:", app.currentTheme);
+        app.contributionMeshes.forEach(mesh => {
+          updateSingleCellMaterial(mesh);
+        });
+      }
+
+      // Update material for a single cell
+      function updateSingleCellMaterial(mesh) {
+        if (!mesh || !mesh.userData || !mesh.userData.contribution) return;
+
+        const { contribution } = mesh.userData;
+        const isGlow = app.currentTheme === "Glow";
+        const glowConfig = app.themes.Glow;
+        const topColor = new THREE.Color(app.config.colors[contribution.contribLevel]);
+
+        // Dispose previous material to prevent memory leaks
+        if (mesh.material) {
+          mesh.material.dispose();
+        }
+        // Also dispose the stored original material if it exists
+         if (mesh.userData.originalMaterial && mesh.userData.originalMaterial !== mesh.material) {
+            mesh.userData.originalMaterial.dispose();
+        }
+
+        // Create new material based on theme
+        const newMaterial = new THREE.MeshLambertMaterial({
+          vertexColors: true, // Keep vertex colors for gradient
+          emissive: isGlow ? topColor : 0x000000, // Only set emissive for Glow theme
+          emissiveIntensity: isGlow ? glowConfig.emissiveIntensity : 0,
+        });
+
+        mesh.material = newMaterial;
+        mesh.userData.originalMaterial = newMaterial; // Store reference for hover reset
+
+         // We don't need to re-assign highlightMaterial unless it also needs theming
+        // mesh.userData.highlightMaterial remains the simple yellow Lambert material
+      }
+
       function setupEventListeners() {
-        // Mouse move for raycasting - Use renderer.domElement to avoid conflicts
+        // Mouse move for raycasting
         app.renderer.domElement.addEventListener(
           "mousemove",
           onCanvasMouseMove,
           false
         );
 
-        // Button event listeners
+        // Button event listeners (remain the same)
         document.getElementById("load-data").addEventListener("click", () => {
           const usernameInput = document.getElementById("username").value;
           const yearInput = document.getElementById("year").value;
@@ -250,29 +398,27 @@
           if (usernameInput) {
             app.username = usernameInput;
           }
-
           if (yearInput && !isNaN(parseInt(yearInput))) {
             app.year = parseInt(yearInput);
           }
 
           document.getElementById("loading").style.display = "block";
           clearScene();
-          fetchContributionsData();
+          fetchContributionsData(); // This will recreate cells with the current theme
         });
 
         document
           .getElementById("reset-camera")
           .addEventListener("click", () => {
-            // Reset camera position with animation
+             // Reset camera position with animation (remains the same)
             new TWEEN.Tween(app.camera.position)
               .to({ x: 0, y: 30, z: 40 }, 1000)
               .easing(TWEEN.Easing.Cubic.InOut)
               .start();
-
             new TWEEN.Tween(app.controls.target)
               .to({ x: 0, y: 0, z: 0 }, 1000)
               .easing(TWEEN.Easing.Cubic.InOut)
-              .onUpdate(() => app.controls.update()) // Ensure controls update during tween
+              .onUpdate(() => app.controls.update())
               .start();
           });
 
@@ -287,7 +433,7 @@
           .getElementById("height-scale")
           .addEventListener("input", (e) => {
             app.config.heightScale = parseFloat(e.target.value);
-            updateHeights();
+            updateHeights(); // Height update is independent of theme material
           });
       }
 
@@ -296,14 +442,15 @@
         document.getElementById("year").value = app.year;
         app.controls.autoRotate = app.config.autoRotate;
         document.getElementById("auto-rotate").checked = app.config.autoRotate;
-        app.controls.target.set(0, 0, 0); // Ensure target starts at 0,0,0
-        app.controls.update(); // Initialize controls state
+        app.controls.target.set(0, 0, 0); // This line should no longer cause an error
+        app.controls.update();
       }
 
       function animateLoadingText() {
-        const loadingEl = document.getElementById("loading");
+        // ... (remains the same)
+         const loadingEl = document.getElementById("loading");
         let dots = 0;
-        // Store interval ID to clear it later if needed
+        if (app.loadingInterval) clearInterval(app.loadingInterval); // Clear previous interval if any
         app.loadingInterval = setInterval(() => {
           dots = (dots + 1) % 4;
           if (document.getElementById("loading").style.display !== "none") {
@@ -312,36 +459,37 @@
               "."
             )}`;
           } else {
-            clearInterval(app.loadingInterval); // Stop animation when loading is hidden
+            clearInterval(app.loadingInterval);
           }
         }, 300);
       }
 
-      // Handle window resize
       function onWindowResize() {
         app.camera.aspect = window.innerWidth / window.innerHeight;
         app.camera.updateProjectionMatrix();
         app.renderer.setSize(window.innerWidth, window.innerHeight);
+        // Resize composer and bloom pass as well
         if (app.composer) {
           app.composer.setSize(window.innerWidth, window.innerHeight);
         }
+         if (app.bloomPass) {
+            // UnrealBloomPass might need specific handling or EffectComposer handles it
+            // For safety, explicitly set size if required by the pass implementation
+             // bloomPass.setSize(window.innerWidth, window.innerHeight); // Check if needed
+        }
       }
 
-      // Mouse move handler for raycasting (on canvas)
       function onCanvasMouseMove(event) {
-        // Calculate mouse position relative to the canvas
-        const rect = app.renderer.domElement.getBoundingClientRect();
+        // ... (remains the same)
+         const rect = app.renderer.domElement.getBoundingClientRect();
         app.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         app.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       }
 
-      // Fetch GitHub contribution data
       function fetchContributionsData() {
-        // Re-enable loading text animation if needed
+        // ... (remains the same)
         if (app.loadingInterval) clearInterval(app.loadingInterval);
         animateLoadingText();
-
-        // In a real application, you would fetch this from your backend
         generateMockData()
           .then((data) => {
             app.contributionData = data;
@@ -351,18 +499,18 @@
             document.getElementById(
               "total-contributions"
             ).textContent = `Total: ${data.totalContributions} contributions`;
-            createVisualization();
+            createVisualization(); // Will use current theme settings
           })
           .catch((error) => {
             console.error("Failed to load contribution data:", error);
             document.getElementById("loading").textContent =
               "Failed to load data. Check console for details.";
-            // Optionally keep loading indicator visible or show error message
+             if (app.loadingInterval) clearInterval(app.loadingInterval);
           });
       }
 
-      // Generate mock data for demo purposes
       function generateMockData() {
+        // ... (remains the same - generates data structure)
         return new Promise((resolve) => {
           // Simulate network delay
           setTimeout(() => {
@@ -430,14 +578,19 @@
                 level = 1;
                 contribLevel = "first_quartile";
               } else if (tempDay.count > levelThresholds[0]) {
-                level = 1;
-                contribLevel = "first_quartile";
-              } // Ensure count > 0 gets at least level 1
+                 level = 1; // Assign level 1 even for 1 contribution if threshold is > 1
+                 contribLevel = "first_quartile";
+              }
+              // Refined check: Ensure count > 0 gets at least level 1, handle maxContribs=0 case
+               if (tempDay.count > 0 && level === 0) {
+                   level = 1;
+                   contribLevel = "first_quartile";
+               }
+
 
               // Calculate week of year (consistent with GitHub)
               const firstDayOfYear = new Date(d.getFullYear(), 0, 1);
               const pastDaysOfYear = (d - firstDayOfYear) / 86400000;
-              // Adjust start day for week calculation (Sunday as start of week)
               const weekOfYear = Math.floor(
                 (pastDaysOfYear + firstDayOfYear.getDay()) / 7
               );
@@ -458,331 +611,230 @@
               years: [app.year],
               days,
             });
-          }, 500); // Reduced mock delay
+          }, 500);
         });
       }
 
-      // Create the 3D visualization from contribution data
       function createVisualization() {
-        if (!app.contributionData) return;
+        // ... (Grid calculation, ground plane, labels remain the same) ...
+         if (!app.contributionData) return;
 
         const { days } = app.contributionData;
         const cellSize = app.config.cellSize;
         const spacing = app.config.cellSpacing;
         const totalSize = cellSize + spacing;
 
-        // Group days by week and day of week for grid layout
         const grid = {};
         let maxWeek = 0;
 
         days.forEach((day) => {
           const weekOfYear = day.weekOfYear;
-          const dayOfWeek = day.dayOfWeek; // 0=Sun, 6=Sat
-
-          // Ensure week index is valid
+          const dayOfWeek = day.dayOfWeek;
           if (weekOfYear >= 0) {
-            if (!grid[weekOfYear]) {
-              grid[weekOfYear] = {};
-            }
+            if (!grid[weekOfYear]) grid[weekOfYear] = {};
             grid[weekOfYear][dayOfWeek] = day;
             maxWeek = Math.max(maxWeek, weekOfYear);
           } else {
-            console.warn(
-              "Invalid weekOfYear calculated:",
-              day.date,
-              weekOfYear
-            );
+             console.warn("Invalid weekOfYear:", day.date, weekOfYear);
           }
         });
 
-        // Calculate grid dimensions and center offset
         const numWeeks = maxWeek + 1;
         const gridWidth = numWeeks * totalSize;
-        const gridDepth = 7 * totalSize; // Use depth for Z-axis
+        const gridDepth = 7 * totalSize;
         const offsetX = -gridWidth / 2 + totalSize / 2;
         const offsetZ = -gridDepth / 2 + totalSize / 2;
 
-        // Create a ground plane (optional, helps with orientation)
-        const groundGeometry = new THREE.PlaneGeometry(
-          gridWidth + 10,
-          gridDepth + 10
-        );
+        // Create ground plane
+        const groundGeometry = new THREE.PlaneGeometry(gridWidth + 10, gridDepth + 10);
         const groundMaterial = new THREE.MeshLambertMaterial({
-          // Use Lambert for lighting interaction
-          color: app.config.baseColor, // Slightly lighter than background
+          color: 0x10141a, // Slightly lighter than base background
           side: THREE.DoubleSide,
         });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
         ground.rotation.x = -Math.PI / 2;
-        ground.position.y = -0.1; // Position slightly below cells
-        ground.receiveShadow = true; // Allow ground to receive shadows
+        ground.position.y = -0.1;
+        ground.receiveShadow = true;
         app.scene.add(ground);
 
         // Create contribution cells
         for (let week = 0; week <= maxWeek; week++) {
           for (let day = 0; day < 7; day++) {
-            // Position cells based on week (X) and dayOfWeek (Z)
-            // GitHub map usually has Sunday at the top (low Z) or bottom (high Z)
-            // Let's map Sun (0) to Z=0, Sat (6) to Z=6
             const contribution = grid[week]?.[day];
             const xPos = offsetX + week * totalSize;
             const zPos = offsetZ + day * totalSize;
-
             if (contribution) {
-              createContributionCell(contribution, xPos, zPos);
-            } else {
-              // Optionally create a placeholder for missing days if needed
-              // createContributionCell({ date: `Week ${week}, Day ${day}`, count: 0, level: 0, contribLevel: 'none'}, xPos, zPos);
+              createContributionCell(contribution, xPos, zPos); // Will create cell with current theme material
             }
           }
         }
 
-        // Add month labels on x-axis (below the grid)
+         // Add month labels
         let lastMonth = -1;
-        const monthLabelZ = offsetZ + 7 * totalSize + totalSize * 0.5; // Position below last day row
+        const monthLabelZ = offsetZ + 7 * totalSize + totalSize * 0.5;
         days.forEach((day) => {
-          const date = new Date(day.date + "T00:00:00"); // Ensure correct date parsing
-          const month = date.getMonth();
-          const week = day.weekOfYear;
-          const dayOfMonth = date.getDate();
-
-          // Add month label near the start of the month's first full week
-          if (month !== lastMonth && dayOfMonth <= 7 && week >= 0) {
-            const monthX = offsetX + week * totalSize;
-            createMonthLabel(
-              date.toLocaleDateString("en-US", { month: "short" }),
-              monthX,
-              monthLabelZ
-            );
-            lastMonth = month;
-          }
+            const date = new Date(day.date + "T00:00:00");
+            const month = date.getMonth();
+            const week = day.weekOfYear;
+            const dayOfMonth = date.getDate();
+            if (month !== lastMonth && dayOfMonth <= 7 && week >= 0) {
+                const monthX = offsetX + week * totalSize;
+                createMonthLabel(date.toLocaleDateString("en-US", { month: "short" }), monthX, monthLabelZ);
+                lastMonth = month;
+            }
         });
 
-        // Add day of week labels on z-axis (left of the grid)
-        const dayLabelX = offsetX - totalSize * 1.5; // Position left of first week column
+        // Add day of week labels
+        const dayLabelX = offsetX - totalSize * 1.5;
         const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        // Adjust label positioning if needed based on day mapping
         for (let day = 0; day < 7; day++) {
-          if (day === 1 || day === 3 || day === 5) {
-            // Show only Mon, Wed, Fri
-            createDayLabel(
-              daysOfWeek[day],
-              dayLabelX,
-              offsetZ + day * totalSize // Z position corresponds to day row
-            );
-          }
+            if (day === 1 || day === 3 || day === 5) { // Mon, Wed, Fri
+                createDayLabel(daysOfWeek[day], dayLabelX, offsetZ + day * totalSize);
+            }
         }
 
-        // Hide loading indicator
         document.getElementById("loading").style.display = "none";
-        if (app.loadingInterval) clearInterval(app.loadingInterval); // Stop loading animation
+        if (app.loadingInterval) clearInterval(app.loadingInterval);
 
-        // Center camera view on the grid
-        const centerTarget = new THREE.Vector3(0, 0, 0); // Center of the grid
+        // Center camera (remains the same)
+        const centerTarget = new THREE.Vector3(0, 0, 0);
         new TWEEN.Tween(app.controls.target)
           .to({ x: centerTarget.x, y: centerTarget.y, z: centerTarget.z }, 800)
           .easing(TWEEN.Easing.Cubic.Out)
           .onUpdate(() => app.controls.update())
           .start();
         new TWEEN.Tween(app.camera.position)
-          .to(
-            { x: centerTarget.x, y: 35, z: centerTarget.z + gridDepth * 0.8 },
-            1000
-          ) // Adjust camera distance based on grid size
+          .to({ x: centerTarget.x, y: 35, z: centerTarget.z + gridDepth * 0.8 }, 1000)
           .easing(TWEEN.Easing.Cubic.Out)
           .start();
       }
 
-      // Create a single contribution cell with gradient
+      // Create a single contribution cell
       function createContributionCell(contribution, x, z) {
         const cellSize = app.config.cellSize;
-        // Ensure minimum height for visibility, scale actual height based on count
         const baseHeight = 0.1;
-        const scaledHeight = contribution.count * 0.1 * app.config.heightScale; // Adjusted scaling factor
+        const scaledHeight = contribution.count * 0.1 * app.config.heightScale;
         const totalHeight = baseHeight + scaledHeight;
 
-        const geometry = new THREE.BoxGeometry(cellSize, 1, cellSize); // Use height 1 for easier scaling/vertex access
-        geometry.translate(0, 0.5, 0); // Move origin to base of the box
+        const geometry = new THREE.BoxGeometry(cellSize, 1, cellSize);
+        geometry.translate(0, 0.5, 0);
 
+        // --- Vertex Colors for Gradient ---
         const positionAttribute = geometry.attributes.position;
         const colors = [];
-        const topColor = new THREE.Color(
-          app.config.colors[contribution.contribLevel]
-        );
-        // Make bottom color slightly darker for gradient effect, except for 'none' level
-        const bottomColor =
-          contribution.level === 0
-            ? topColor.clone()
-            : topColor.clone().multiplyScalar(0.6);
-
+        const topColor = new THREE.Color(app.config.colors[contribution.contribLevel]);
+        const bottomColor = contribution.level === 0 ? topColor.clone() : topColor.clone().multiplyScalar(0.6);
         for (let i = 0; i < positionAttribute.count; i++) {
-          // Check if vertex is near the top (y=0.5) or bottom (y=-0.5) after translate
           const y = positionAttribute.getY(i);
-          if (y > 0) {
-            // Top face vertices
-            colors.push(topColor.r, topColor.g, topColor.b);
-          } else {
-            // Bottom face vertices (and sides)
-            colors.push(bottomColor.r, bottomColor.g, bottomColor.b);
-          }
+          colors.push( (y > 0 ? topColor : bottomColor).r, (y > 0 ? topColor : bottomColor).g, (y > 0 ? topColor : bottomColor).b);
         }
-        geometry.setAttribute(
-          "color",
-          new THREE.Float32BufferAttribute(colors, 3)
-        );
+        geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+        // --- End Vertex Colors ---
 
-        // Material using vertex colors
-        const material = new THREE.MeshLambertMaterial({
-                vertexColors: true,
-                emissive: topColor,          // Set emissive color to the main bright color
-                emissiveIntensity: 0.05       // Adjust intensity (0.0 to 1.0+) - Start lower
-            });
-
-        // Simple material for highlighting
-        const highlightMaterial = new THREE.MeshLambertMaterial({
-          color: app.config.highlightColor,
-        });
-
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(x, 0, z); // Position base at y=0
-        mesh.scale.y = totalHeight; // Scale height correctly
+        // Material is set by updateSingleCellMaterial based on the current theme
+        const mesh = new THREE.Mesh(geometry, null); // Material will be assigned shortly
+        mesh.position.set(x, 0, z);
+        mesh.scale.y = totalHeight;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
 
-        // Store data for interaction
+        // Simple material for highlighting (independent of theme for now)
+         const highlightMaterial = new THREE.MeshLambertMaterial({
+            color: app.config.highlightColor,
+            // No emissive for highlight unless desired
+        });
+
+
         mesh.userData = {
           contribution: contribution,
-          originalMaterial: material,
+          originalMaterial: null, // Will be set by updateSingleCellMaterial
           highlightMaterial: highlightMaterial,
-          originalHeight: totalHeight, // Store the calculated total height
+          originalHeight: totalHeight,
         };
+
+        // Set the initial material based on the current theme
+        updateSingleCellMaterial(mesh); // Crucial step
 
         app.scene.add(mesh);
         app.contributionMeshes.push(mesh);
       }
 
-      // Create a month label
-      // Create a month label
+      // Create month/day labels (remain the same)
       function createMonthLabel(text, x, z) {
-        const canvas = document.createElement("canvas");
+         const canvas = document.createElement("canvas");
         const context = canvas.getContext("2d");
-
-        const scaleFactor = 2; // Increase resolution (e.g., 2x)
+        const scaleFactor = 2;
         const baseFontSize = 14;
         const fontSize = baseFontSize * scaleFactor;
-        canvas.width = 64 * scaleFactor; // Increased canvas width
-        canvas.height = 32 * scaleFactor; // Increased canvas height
-
-        context.fillStyle = "#c9d1d9"; // Use lighter text color
-
-        context.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif`; // Use increased font size and maybe bold
-
+        canvas.width = 64 * scaleFactor;
+        canvas.height = 32 * scaleFactor;
+        context.fillStyle = "#c9d1d9";
+        context.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif`;
         context.textAlign = "center";
         context.textBaseline = "middle";
-
-        // Ensure text antialiasing (usually default, but good to be aware of)
         context.imageSmoothingEnabled = true;
-        // context.imageSmoothingQuality = "high"; // Optional: browser support varies
-
         context.fillText(text, canvas.width / 2, canvas.height / 2);
-
         const texture = new THREE.CanvasTexture(canvas);
         texture.needsUpdate = true;
-
-        // You can experiment with texture filtering if needed, but resolution is primary
-        // texture.minFilter = THREE.LinearFilter; // Default
-        // texture.magFilter = THREE.LinearFilter; // Default (prevents blockiness when scaling up)
-        // texture.magFilter = THREE.NearestFilter; // Alternative: sharp pixels, can look blocky
-
-        const material = new THREE.SpriteMaterial({
-          map: texture,
-          transparent: true,
-          opacity: 0.9,
-        }); // Slightly increased opacity maybe
+        const material = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9 });
         const sprite = new THREE.Sprite(material);
-
-        sprite.position.set(x, 0.3, z); // Keep Y position slightly above ground
-
-        // Adjust scale if needed to maintain visual size after increasing canvas resolution
-        // Example: If canvas doubled (scaleFactor=2), maybe halve the original scale? Needs tuning.
-        // Original scale was (4, 2, 1). Maybe try (2.5, 1.25, 1) or adjust as needed.
-        sprite.scale.set(3, 1.5, 1); // Adjust these values
-
+        sprite.position.set(x, 0.3, z);
+        sprite.scale.set(3, 1.5, 1);
         app.scene.add(sprite);
         app.monthLabels.push(sprite);
       }
 
-      // Create a day label
-      // Create a day label
-      function createDayLabel(text, x, z) {
+       function createDayLabel(text, x, z) {
         const canvas = document.createElement("canvas");
         const context = canvas.getContext("2d");
-        const scaleFactor = 2; // Increase resolution (e.g., 2x)
+        const scaleFactor = 2;
         const baseFontSize = 12;
         const fontSize = baseFontSize * scaleFactor;
-        canvas.width = 48 * scaleFactor; // Increased canvas width
-        canvas.height = 24 * scaleFactor; // Increased canvas height
-
-        context.fillStyle = "#c9d1d9"; // Use lighter text color
-        context.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif`; // Use increased font size and maybe bold
+        canvas.width = 48 * scaleFactor;
+        canvas.height = 24 * scaleFactor;
+        context.fillStyle = "#c9d1d9";
+        context.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif`;
         context.textAlign = "center";
         context.textBaseline = "middle";
-        // Ensure text antialiasing
         context.imageSmoothingEnabled = true;
         context.fillText(text, canvas.width / 2, canvas.height / 2);
-
         const texture = new THREE.CanvasTexture(canvas);
         texture.needsUpdate = true;
-        // Optional: Experiment with filtering
-        // texture.magFilter = THREE.LinearFilter; // Default - smoother but potentially blurrier
-        // texture.magFilter = THREE.NearestFilter; // Sharper but potentially blocky
-
-        const material = new THREE.SpriteMaterial({
-          map: texture,
-          transparent: true,
-          opacity: 0.9,
-        }); // Slightly increased opacity maybe
+        const material = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9 });
         const sprite = new THREE.Sprite(material);
-
-        sprite.position.set(x, 0.3, z); // Keep Y position slightly above ground
-
-        // Adjust scale if needed to maintain visual size
-        // Original scale was (3, 1.5, 1). Maybe try (2, 1, 1) or adjust as needed.
-        sprite.scale.set(2.5, 1.25, 1); // Adjust these values
-
+        sprite.position.set(x, 0.3, z);
+        sprite.scale.set(2.5, 1.25, 1);
         app.scene.add(sprite);
         app.weekLabels.push(sprite);
       }
 
-      // Update heights of all cells based on height scale
+
+      // Update heights (remains the same)
       function updateHeights() {
         const baseHeight = 0.1;
         app.contributionMeshes.forEach((mesh) => {
           const { contribution } = mesh.userData;
-          const scaledHeight =
-            contribution.count * 0.1 * app.config.heightScale; // Use same scaling as creation
+          const scaledHeight = contribution.count * 0.1 * app.config.heightScale;
           const newTotalHeight = baseHeight + scaledHeight;
-
-          // Update scale directly - vertex colors should interpolate with scale
           mesh.scale.y = newTotalHeight;
-          // Store the new height if needed elsewhere, but userData.originalHeight should remain the initial one
-          // mesh.userData.currentHeight = newTotalHeight;
         });
       }
 
-      // Clear all scene elements for new data
+      // Clear scene (Update to dispose materials properly)
       function clearScene() {
-        // Remove contribution meshes
+        // Remove contribution meshes and dispose materials
         while (app.contributionMeshes.length > 0) {
-          const mesh = app.contributionMeshes.pop();
-          if (mesh.parent) mesh.parent.remove(mesh); // Use parent.remove for cleaner removal
-          mesh.geometry.dispose();
-          // Dispose materials stored in userData
-          if (mesh.userData.originalMaterial)
-            mesh.userData.originalMaterial.dispose();
-          if (mesh.userData.highlightMaterial)
-            mesh.userData.highlightMaterial.dispose();
+            const mesh = app.contributionMeshes.pop();
+            if (mesh.parent) mesh.parent.remove(mesh);
+            mesh.geometry.dispose();
+            // Dispose the current material
+            if (mesh.material) mesh.material.dispose();
+            // Dispose the stored original material (might be the same instance, but dispose is safe)
+            if (mesh.userData.originalMaterial) mesh.userData.originalMaterial.dispose();
+            // Dispose the highlight material
+            if (mesh.userData.highlightMaterial) mesh.userData.highlightMaterial.dispose();
         }
+        app.contributionMeshes = []; // Ensure array is empty
 
         // Remove month labels
         while (app.monthLabels.length > 0) {
@@ -791,6 +843,7 @@
           if (label.material.map) label.material.map.dispose();
           label.material.dispose();
         }
+         app.monthLabels = [];
 
         // Remove day labels
         while (app.weekLabels.length > 0) {
@@ -799,116 +852,88 @@
           if (label.material.map) label.material.map.dispose();
           label.material.dispose();
         }
+        app.weekLabels = [];
 
-        // Remove any other objects like ground plane
-        const objectsToRemove = [];
-        app.scene.children.forEach((child) => {
-          if (
-            child instanceof THREE.Mesh &&
-            child.geometry instanceof THREE.PlaneGeometry
-          ) {
-            objectsToRemove.push(child);
-          }
-          // Add other object types if necessary (e.g., helpers)
+        // Remove ground plane and other potential objects
+        const objectsToRemove = app.scene.children.filter(child =>
+            child instanceof THREE.Mesh && child.geometry instanceof THREE.PlaneGeometry
+        );
+        objectsToRemove.forEach(child => {
+            if (child.parent) child.parent.remove(child);
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
         });
 
-        objectsToRemove.forEach((child) => {
-          if (child.parent) child.parent.remove(child);
-          child.geometry.dispose();
-          child.material.dispose();
-        });
-        // Explicitly clear hover info
-        document.getElementById("hover-info").textContent =
-          "Hover over a cell to see details";
-        if (app.hoveredCell) {
-          app.hoveredCell = null; // Clear reference
-        }
+        // Reset hover info
+        document.getElementById("hover-info").textContent = "Hover over a cell to see details";
+        app.hoveredCell = null;
       }
+
 
       // Animation loop
       function animate() {
         requestAnimationFrame(animate);
 
-        // Update controls if damping or auto-rotate is enabled
         app.controls.update();
-
-        // Update TWEEN animations
         TWEEN.update();
 
-        // Raycasting for hover effects
+        // --- Raycasting (remains mostly the same) ---
         app.raycaster.setFromCamera(app.mouse, app.camera);
-        // Filter intersections to only include contribution meshes
-        const intersects = app.raycaster.intersectObjects(
-          app.contributionMeshes,
-          false
-        ); // non-recursive
+        const intersects = app.raycaster.intersectObjects(app.contributionMeshes, false);
 
         let intersectedObject = null;
         if (intersects.length > 0) {
-          // Find the first mesh that has our userData structure
-          for (let i = 0; i < intersects.length; i++) {
-            if (
-              intersects[i].object.userData &&
-              intersects[i].object.userData.contribution
-            ) {
-              intersectedObject = intersects[i].object;
-              break;
+            for (let i = 0; i < intersects.length; i++) {
+                if (intersects[i].object.userData?.contribution) {
+                    intersectedObject = intersects[i].object;
+                    break;
+                }
             }
-          }
         }
 
         // Handle hover out
         if (app.hoveredCell && app.hoveredCell !== intersectedObject) {
-          // Restore original material only if it exists
-          if (
-            app.hoveredCell.userData &&
-            app.hoveredCell.userData.originalMaterial
-          ) {
-            app.hoveredCell.material =
-              app.hoveredCell.userData.originalMaterial;
-          }
-          app.hoveredCell = null;
-          document.getElementById("hover-info").textContent =
-            "Hover over a cell to see details";
+            // Restore the THEMED original material
+            if (app.hoveredCell.userData?.originalMaterial) {
+                app.hoveredCell.material = app.hoveredCell.userData.originalMaterial;
+            }
+            app.hoveredCell = null;
+            document.getElementById("hover-info").textContent = "Hover over a cell to see details";
         }
 
         // Handle hover in
         if (intersectedObject && app.hoveredCell !== intersectedObject) {
-          app.hoveredCell = intersectedObject;
-          // Apply highlight material only if it exists
-          if (
-            app.hoveredCell.userData &&
-            app.hoveredCell.userData.highlightMaterial
-          ) {
-            app.hoveredCell.material =
-              app.hoveredCell.userData.highlightMaterial;
-          }
+             // Ensure previous hover is cleared BEFORE applying new highlight
+            if (app.hoveredCell && app.hoveredCell.userData?.originalMaterial) {
+                 app.hoveredCell.material = app.hoveredCell.userData.originalMaterial;
+            }
 
-          // Update info display
-          const contribution = app.hoveredCell.userData.contribution;
-          const date = new Date(contribution.date + "T00:00:00"); // Ensure correct date timezone handling
-          const formattedDate = date.toLocaleDateString("en-US", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          });
+            app.hoveredCell = intersectedObject;
+            // Apply highlight material
+            if (app.hoveredCell.userData?.highlightMaterial) {
+                app.hoveredCell.material = app.hoveredCell.userData.highlightMaterial;
+            }
 
-          document.getElementById("hover-info").innerHTML =
-            `<strong>${formattedDate}</strong><br>` +
-            `${contribution.count} contribution${
-              contribution.count !== 1 ? "s" : ""
-            }`;
+            // Update info display
+            const { contribution } = app.hoveredCell.userData;
+            const date = new Date(contribution.date + "T00:00:00");
+            const formattedDate = date.toLocaleDateString("en-US", { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            document.getElementById("hover-info").innerHTML = `<strong>${formattedDate}</strong><br>${contribution.count} contribution${contribution.count !== 1 ? 's' : ''}`;
         }
+        // --- End Raycasting ---
 
-        if (app.composer) {
-          app.composer.render();
+
+        // --- Conditional Rendering ---
+        if (app.currentTheme === "Glow" && app.composer && app.bloomPass?.enabled) {
+          app.composer.render(); // Use composer for Glow theme
         } else {
-          // Fallback to direct rendering if composer isn't set up
-          app.renderer.render(app.scene, app.camera);
+          app.renderer.render(app.scene, app.camera); // Use direct renderer otherwise
         }
+        // --- End Conditional Rendering ---
       }
 
+
+      // == OrbitControls Implementation ==
       // == OrbitControls Implementation ==
       // Using a slightly modified version to ensure compatibility and avoid global conflicts
       THREE.OrbitControls = function (object, domElement) {
