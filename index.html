@@ -124,6 +124,11 @@
         scene: null,
         camera: null,
         renderer: null,
+        minesweeperTextures: null, // Cache for Minesweeper textures
+        minesweeperBombMaterial: null, // Material for bomb body
+        minesweeperFuseMaterial: null, // Material for bomb fuse
+        minesweeperSunkenMaterial: null, // Material for the base under numbers/bombs
+        vertexColorMaterial: null, // SHARED material for Standard/Glow base
         controls: null,
         composer: null, // For post-processing
         bloomPass: null, // Reference to the bloom pass
@@ -141,12 +146,12 @@
           autoRotate: true,
           // Standard theme colors (kept for reference/fallback)
           baseColor: 0x0d1117,
-           colors: {
-              none: 0x161b22,
-              first_quartile: 0x0e4429,
-              second_quartile: 0x006d32,
-              third_quartile: 0x26a641,
-              fourth_quartile: 0x39d353,
+          colors: {
+            none: 0x161b22,
+            first_quartile: 0x0e4429,
+            second_quartile: 0x006d32,
+            third_quartile: 0x26a641,
+            fourth_quartile: 0x39d353,
           },
           highlightColor: 0xffcc00, // Default highlight
         },
@@ -159,7 +164,7 @@
         themes: {
           Standard: {
             name: "Standard",
-             // Standard theme colors moved here
+            // Standard theme colors moved here
             baseColor: 0x0d1117,
             colors: {
               none: 0x161b22,
@@ -173,7 +178,8 @@
           Glow: {
             name: "Glow",
             baseColor: 0x0d1117,
-            colors: { // Glow theme might use slightly different base colors
+            colors: {
+              // Glow theme might use slightly different base colors
               none: 0x161b22,
               first_quartile: 0x0e4429,
               second_quartile: 0x006d32,
@@ -188,25 +194,29 @@
             emissiveIntensity: 0.1,
           },
           Minesweeper: {
-              name: "Minesweeper",
-              baseColor: 0xb0b0b0, // Light gray background like classic Minesweeper
-              cellBackgroundColor: '#c0c0c0', // Unclicked tile color (silver/gray)
-              cellBorderColor: '#808080', // Darker border
-              cellHighlightColor: 0xffff00, // Yellow highlight on hover
-              numberColors: [ // Colors for numbers 1-8
-                  '#0000ff', // 1: Blue
-                  '#008000', // 2: Green
-                  '#ff0000', // 3: Red
-                  '#000080', // 4: Dark Blue
-                  '#800000', // 5: Maroon
-                  '#008080', // 6: Teal
-                  '#000000', // 7: Black
-                  '#808080'  // 8: Gray
-              ],
-              bombColor: '#000000', // Bomb icon color
-              mineThresholdLevel: 4, // Use Level 4 contributions as "mines"
-              textureSize: 64, // Size for generated textures
-          }
+            name: "Minesweeper",
+            baseColor: 0xb0b0b0, // Light gray background
+            cellBackgroundColor: "#c0c0c0", // Unclicked tile color (silver/gray) - for empty cells base
+            cellBorderColor: "#808080", // Darker border
+            cellHighlightColor: 0xffff00, // Yellow highlight on hover
+            cellSunkenColor: "#bdbdbd", // Background for revealed numbers/bombs
+            numberColors: [
+              // Colors for numbers 1-8
+              "#0000ff", // 1: Blue
+              "#008000", // 2: Green
+              "#ff0000", // 3: Red
+              "#000080", // 4: Dark Blue
+              "#800000", // 5: Maroon
+              "#008080", // 6: Teal
+              "#000000", // 7: Black
+              "#808080", // 8: Gray
+            ],
+            bombColor: "#1a1a1a", // Dark color for bomb body
+            fuseColor: "#555555", // Fuse color
+            mineThresholdLevel: 4, // Contributions >= this level are mines
+            textureSize: 64, // Size for generated textures
+            showHeight: false, // Option to disable height scaling for classic look? (optional)
+          },
         },
         themeSettings: {
           // This object will be controlled by dat.GUI
@@ -219,6 +229,12 @@
       // Initialize the application
       function init() {
         setupThreeJS();
+        // Initialize the shared vertex color material
+        if (!app.vertexColorMaterial) {
+          app.vertexColorMaterial = new THREE.MeshLambertMaterial({
+            vertexColors: true,
+          });
+        }
         setupPostProcessing(); // Setup composer and passes
         setupGUI(); // Setup dat.GUI controls
         setupEventListeners();
@@ -305,17 +321,18 @@
         app.bloomPass.enabled = app.currentTheme === "Glow";
       }
 
-       // Setup dat.GUI controls
-       function setupGUI() {
+      // Setup dat.GUI controls
+      function setupGUI() {
         app.gui = new dat.GUI();
-        app.gui.domElement.classList.add('main'); // Optional: for specific styling
+        app.gui.domElement.classList.add("main"); // Optional: for specific styling
 
         // Get theme names for the dropdown
         const themeNames = Object.keys(app.themes);
 
         // Add theme selection controller
-        app.gui.add(app.themeSettings, 'theme', themeNames)
-          .name('Theme')
+        app.gui
+          .add(app.themeSettings, "theme", themeNames)
+          .name("Theme")
           .onChange((value) => {
             applyTheme(value);
           });
@@ -328,6 +345,7 @@
           return;
         }
 
+        const oldThemeName = app.currentTheme;
         console.log(`Applying theme: ${themeName}`);
         app.currentTheme = themeName;
         app.themeSettings.theme = themeName; // Sync GUI state
@@ -335,6 +353,7 @@
         const themeConfig = app.themes[themeName];
         const isGlow = themeName === "Glow";
         const isMinesweeper = themeName === "Minesweeper";
+        const wasMinesweeper = oldThemeName === "Minesweeper";
 
         // 1. Update Renderer Settings & Background
         app.renderer.toneMapping = isGlow
@@ -345,9 +364,11 @@
           : 1.0;
 
         if (app.scene) {
-            app.scene.background = new THREE.Color(themeConfig.baseColor);
-            // Update body background for consistency
-            document.body.style.backgroundColor = new THREE.Color(themeConfig.baseColor).getStyle();
+          app.scene.background = new THREE.Color(themeConfig.baseColor);
+          // Update body background for consistency
+          document.body.style.backgroundColor = new THREE.Color(
+            themeConfig.baseColor
+          ).getStyle();
         }
 
         // 2. Update Post-processing Settings
@@ -362,257 +383,238 @@
 
         // 3. Handle Minesweeper Texture Generation (only once needed)
         if (isMinesweeper && !app.minesweeperTextures) {
-            console.log("Generating Minesweeper textures...");
-            generateMinesweeperTextures();
+          console.log("Generating Minesweeper textures...");
+          generateMinesweeperTextures(); // Also creates shared materials
+        } else if (wasMinesweeper && !isMinesweeper) {
+          // Dispose textures AND shared materials if switching AWAY from minesweeper
+          disposeMinesweeperTextures();
+          disposeBombMaterials(); // Dispose bomb materials too
         }
 
         // 4. Update Materials of Existing Cells (skip on initial setup before cells exist)
         if (!isInitialSetup) {
-            updateAllCellMaterials();
+          updateAllCellsAppearance();
+        }
+
+        // 5. Update Ground Plane Material
+        if (app.groundPlane) {
+          app.groundPlane.material.color.set(themeConfig.baseColor || 0x10141a);
         }
 
         // Force GUI update
         if (app.gui) {
-            app.gui.__controllers.forEach(controller => {
-                if (controller.property === 'theme') {
-                    controller.updateDisplay();
-                }
-            });
+          app.gui.__controllers.forEach((controller) => {
+            if (controller.property === "theme") {
+              controller.updateDisplay();
+            }
+          });
         }
+      }
+
+      // Add disposal for the new shared material
+      function disposeSharedMaterials() {
+        app.minesweeperSunkenMaterial?.dispose();
+        app.minesweeperSunkenMaterial = null;
+        app.vertexColorMaterial?.dispose();
+        app.vertexColorMaterial = null;
+        disposeBombMaterials(); // Dispose bomb materials too
       }
 
       // --- Minesweeper Texture Generation ---
       function generateMinesweeperTextures() {
-          const themeConfig = app.themes.Minesweeper;
-          const size = themeConfig.textureSize;
-          const textures = {
-              numbers: {},
-              bomb: null,
-              empty: null,
-              mineBackground: null, // Background for the bomb tile
-          };
+        const themeConfig = app.themes.Minesweeper;
+        const size = themeConfig.textureSize;
+        const textures = {
+          numbers: {},
+          empty: null,
+          sunkenBackground: null, // Just the sunken background for number/bomb tiles
+        };
 
-          // Empty Tile Texture (Raised look)
-          textures.empty = createMinesweeperBaseTexture(size, themeConfig.cellBackgroundColor, '#ffffff', themeConfig.cellBorderColor);
+        // Empty Tile Texture (Raised look)
+        textures.empty = createMinesweeperBaseTexture(
+          size,
+          themeConfig.cellBackgroundColor,
+          "#ffffff",
+          themeConfig.cellBorderColor,
+          false
+        );
 
-          // Number Textures (1-8) (Sunken look)
-          const numberBgColor = '#bdbdbd'; // Slightly darker for numbers
-          for (let i = 1; i <= 8; i++) {
-              textures.numbers[i] = createMinesweeperTextTexture(
-                  i.toString(),
-                  themeConfig.numberColors[i - 1],
-                  numberBgColor, // Sunken background
-                  size,
-                  themeConfig.cellBorderColor, // Sunken border dark
-                  '#ffffff' // Sunken border light
-              );
-          }
+        textures.sunkenBackground = createMinesweeperBaseTexture(
+          size,
+          themeConfig.cellSunkenColor,
+          themeConfig.cellBorderColor,
+          "#ffffff",
+          true
+        ); // Inverted borders for sunken
 
-          // Bomb Texture (Sunken look)
-          textures.mineBackground = createMinesweeperBaseTexture(size, numberBgColor, themeConfig.cellBorderColor, '#ffffff'); // Use sunken background
-          textures.bomb = createMinesweeperBombTexture(size, themeConfig.bombColor, textures.mineBackground); // Draw bomb on sunken bg
+        // Number Textures (1-8) (Drawn on sunken background canvas)
+        for (let i = 1; i <= 8; i++) {
+          textures.numbers[i] = createMinesweeperTextTexture(
+            i.toString(),
+            themeConfig.numberColors[i - 1],
+            textures.sunkenBackground, // Pass base texture to draw on
+            size
+          );
+        }
 
-          app.minesweeperTextures = textures;
-          console.log("Minesweeper textures generated:", app.minesweeperTextures);
+        app.minesweeperTextures = textures;
+
+        // Create the shared sunken material instance
+        if (!app.minesweeperSunkenMaterial) {
+          const themeConfig = app.themes.Minesweeper; // Get config needed for color
+          app.minesweeperSunkenMaterial = new THREE.MeshLambertMaterial({
+            color: themeConfig.cellSunkenColor,
+          });
+        }
+
+        console.log("Minesweeper textures generated:", app.minesweeperTextures);
       }
 
-        // Helper to create the base Minesweeper tile look (raised or sunken)
-        function createMinesweeperBaseTexture(size, bgColor, lightBorder, darkBorder) {
-            const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
-            const ctx = canvas.getContext('2d');
+      // Helper to create the base Minesweeper tile look (raised or sunken)
+      // Added 'sunken' flag to invert border colors
+      function createMinesweeperBaseTexture(
+        size,
+        bgColor,
+        lightBorder,
+        darkBorder,
+        sunken = false
+      ) {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
 
-            // Main background
-            ctx.fillStyle = bgColor;
-            ctx.fillRect(0, 0, size, size);
+        // Main background
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, size, size);
 
-            // Border
-            const border = Math.max(1, Math.floor(size * 0.05)); // Border width
-            ctx.fillStyle = lightBorder;
-            ctx.fillRect(0, 0, size, border); // Top
-            ctx.fillRect(0, 0, border, size); // Left
-            ctx.fillStyle = darkBorder;
-            ctx.fillRect(0, size - border, size, border); // Bottom
-            ctx.fillRect(size - border, 0, border, size); // Right
+        // Border
+        const border = Math.max(1, Math.floor(size * 0.03)); // Slightly thinner border
+        const topLight = sunken ? darkBorder : lightBorder;
+        const bottomDark = sunken ? lightBorder : darkBorder;
 
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.needsUpdate = true;
-            texture.colorSpace = THREE.SRGBColorSpace; // Important for color accuracy
-            return texture;
+        ctx.fillStyle = topLight; // Top-Left Light (or Dark if sunken)
+        ctx.fillRect(0, 0, size, border); // Top
+        ctx.fillRect(0, 0, border, size); // Left
+
+        ctx.fillStyle = bottomDark; // Bottom-Right Dark (or Light if sunken)
+        ctx.fillRect(border, size - border, size - border, border); // Bottom
+        ctx.fillRect(size - border, border, border, size - border); // Right
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+      }
+
+      // Helper to draw text onto a base texture (passed as argument)
+      function createMinesweeperTextTexture(
+        text,
+        textColor,
+        baseTexture,
+        size
+      ) {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+
+        // Draw the base background texture first
+        if (baseTexture && baseTexture.image) {
+          ctx.drawImage(baseTexture.image, 0, 0, size, size);
+        } else {
+          console.warn("Base texture missing for text drawing");
+          // Draw fallback background if needed (shouldn't happen ideally)
+          ctx.fillStyle = "#bdbdbd";
+          ctx.fillRect(0, 0, size, size);
         }
 
-        // Helper to draw text onto a base texture
-        function createMinesweeperTextTexture(text, textColor, bgColor, size, darkBorder, lightBorder) {
-            const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
-            const ctx = canvas.getContext('2d');
+        // Text Styling
+        ctx.fillStyle = textColor;
+        // Use a fixed pixel size, maybe slightly adjusted by texture size but not scaled *by* it
+        const baseFontSize = Math.max(10, size * 0.5); // Adjust base font size as needed
+        ctx.font = `bold ${baseFontSize}px "Courier New", Courier, monospace`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        // Adjust vertical position slightly if needed
+        ctx.fillText(text, size / 2, size / 2 + baseFontSize * 0.05);
 
-             // Background and Border (sunken appearance)
-            ctx.fillStyle = bgColor;
-            ctx.fillRect(0, 0, size, size);
-            const border = Math.max(1, Math.floor(size * 0.05));
-            ctx.fillStyle = darkBorder; // Dark top/left for sunken
-            ctx.fillRect(0, 0, size, border);
-            ctx.fillRect(0, 0, border, size);
-            ctx.fillStyle = lightBorder; // Light bottom/right for sunken
-            ctx.fillRect(0, size - border, size, border);
-            ctx.fillRect(size - border, 0, border, size);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+      }
 
+      // Helper to draw a bomb icon onto a base texture
+      function createMinesweeperBombTexture(size, bombColor, baseTexture) {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
 
-            // Text Styling
-            ctx.fillStyle = textColor;
-            ctx.font = `bold ${size * 0.6}px "Courier New", Courier, monospace`; // Classic fixed-width font
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(text, size / 2, size / 2 + size * 0.05); // Slight vertical offset
-
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.needsUpdate = true;
-            texture.colorSpace = THREE.SRGBColorSpace;
-            return texture;
+        // Draw the base background texture first
+        if (baseTexture && baseTexture.image) {
+          ctx.drawImage(baseTexture.image, 0, 0, size, size);
+        } else {
+          console.warn("Base texture missing for bomb");
+          ctx.fillStyle = "#bdbdbd"; // Fallback background
+          ctx.fillRect(0, 0, size, size);
         }
 
-        // Helper to draw a bomb icon onto a base texture
-        function createMinesweeperBombTexture(size, bombColor, baseTexture) {
-             const canvas = document.createElement('canvas');
-            canvas.width = size;
-            canvas.height = size;
-            const ctx = canvas.getContext('2d');
+        // Draw Bomb (simple circle + fuse)
+        const bombRadius = size * 0.25;
+        const centerX = size / 2;
+        const centerY = size / 2;
 
-            // Draw the base background texture first
-             if (baseTexture && baseTexture.image) {
-                 ctx.drawImage(baseTexture.image, 0, 0, size, size);
-            } else {
-                 console.warn("Base texture missing for bomb");
-                 ctx.fillStyle = '#bdbdbd'; // Fallback background
-                 ctx.fillRect(0, 0, size, size);
-            }
+        ctx.fillStyle = bombColor;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, bombRadius, 0, Math.PI * 2);
+        ctx.fill();
 
+        // Fuse (simple line)
+        ctx.strokeStyle = bombColor;
+        ctx.lineWidth = Math.max(1, size * 0.04);
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY - bombRadius);
+        ctx.lineTo(centerX + bombRadius * 0.5, centerY - bombRadius * 1.5);
+        // Add a little spark?
+        ctx.lineTo(centerX + bombRadius * 0.6, centerY - bombRadius * 1.6);
+        ctx.lineTo(centerX + bombRadius * 0.5, centerY - bombRadius * 1.7);
+        ctx.lineTo(centerX + bombRadius * 0.4, centerY - bombRadius * 1.6);
+        ctx.stroke();
 
-            // Draw Bomb (simple circle + fuse)
-            const bombRadius = size * 0.25;
-            const centerX = size / 2;
-            const centerY = size / 2;
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        return texture;
+      }
 
-            ctx.fillStyle = bombColor;
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, bombRadius, 0, Math.PI * 2);
-            ctx.fill();
+      // Dispose Minesweeper Textures
+      function disposeMinesweeperTextures() {
+        if (!app.minesweeperTextures) return;
+        console.log("Disposing Minesweeper textures...");
 
-            // Fuse (simple line)
-            ctx.strokeStyle = bombColor;
-            ctx.lineWidth = Math.max(1, size * 0.04);
-            ctx.beginPath();
-            ctx.moveTo(centerX, centerY - bombRadius);
-            ctx.lineTo(centerX + bombRadius * 0.5, centerY - bombRadius * 1.5);
-             // Add a little spark?
-            ctx.lineTo(centerX + bombRadius * 0.6, centerY - bombRadius * 1.6);
-             ctx.lineTo(centerX + bombRadius * 0.5, centerY - bombRadius * 1.7);
-             ctx.lineTo(centerX + bombRadius * 0.4, centerY - bombRadius * 1.6);
-            ctx.stroke();
-
-
-            const texture = new THREE.CanvasTexture(canvas);
-            texture.needsUpdate = true;
-            texture.colorSpace = THREE.SRGBColorSpace;
-            return texture;
-        }
-
-        // Dispose Minesweeper Textures
-        function disposeMinesweeperTextures() {
-            if (!app.minesweeperTextures) return;
-            console.log("Disposing Minesweeper textures...");
-
-            Object.values(app.minesweeperTextures.numbers).forEach(tex => tex?.dispose());
-            app.minesweeperTextures.bomb?.dispose();
-            app.minesweeperTextures.empty?.dispose();
-            app.minesweeperTextures.mineBackground?.dispose(); // Dispose the background too
-            app.minesweeperTextures = null;
-        }
+        Object.values(app.minesweeperTextures.numbers).forEach((tex) =>
+          tex?.dispose()
+        );
+        app.minesweeperTextures.empty?.dispose();
+        app.minesweeperTextures.sunkenBackground?.dispose(); // Dispose the background too
+        app.minesweeperTextures = null;
+      }
 
       // Update materials for all contribution cells based on the current theme
       function updateAllCellMaterials() {
         // console.log("Updating materials for theme:", app.currentTheme);
-        app.contributionMeshes.forEach(mesh => {
+        app.contributionMeshes.forEach((mesh) => {
           updateSingleCellMaterial(mesh);
         });
       }
 
-      // Update material for a single cell
-      function updateSingleCellMaterial(mesh) {
-        if (!mesh || !mesh.userData || !mesh.userData.contribution) return;
-
-        const { contribution } = mesh.userData;
-        const currentThemeName = app.currentTheme;
-        const themeConfig = app.themes[currentThemeName];
-
-        // Dispose previous material(s) to prevent memory leaks
-        if (mesh.material) mesh.material.dispose();
-        if (mesh.userData.originalMaterial && mesh.userData.originalMaterial !== mesh.material) {
-            mesh.userData.originalMaterial.dispose();
-        }
-        // Make sure highlight material is also themed if needed, or kept separate
-        // For now, we will reuse the highlightMaterial instance but update its color potentially
-
-
-        let newMaterial;
-
-        if (currentThemeName === 'Minesweeper') {
-            if (!app.minesweeperTextures) {
-                console.error("Minesweeper textures not generated!");
-                // Fallback material
-                newMaterial = new THREE.MeshLambertMaterial({ color: 0xff00ff });
-            } else {
-                let texture;
-                const count = contribution.count;
-                const level = contribution.level; // Level determined by mock data ranges
-
-                if (level >= themeConfig.mineThresholdLevel && count > 0) {
-                    texture = app.minesweeperTextures.bomb;
-                } else if (count > 0) {
-                    // Clamp count to 1-8 for texture index
-                    const numIndex = Math.max(1, Math.min(count, 8));
-                    texture = app.minesweeperTextures.numbers[numIndex];
-                } else {
-                    texture = app.minesweeperTextures.empty;
-                }
-
-                 if (!texture) { // Safety check if a texture failed generation
-                     console.warn("Missing texture for count/level", count, level, "Using empty.");
-                     texture = app.minesweeperTextures.empty;
-                 }
-
-                newMaterial = new THREE.MeshLambertMaterial({
-                    map: texture,
-                    // color: 0xffffff, // Set color to white to avoid tinting the texture
-                });
-            }
-             // Update highlight color for Minesweeper
-            if (mesh.userData.highlightMaterial) {
-                 mesh.userData.highlightMaterial.color.set(themeConfig.cellHighlightColor || 0xffff00); // Use theme's highlight or yellow fallback
-            }
-
-
-        } else { // Standard or Glow themes
-            const isGlow = currentThemeName === "Glow";
-            const topColor = new THREE.Color(themeConfig.colors[contribution.contribLevel]);
-
-            newMaterial = new THREE.MeshLambertMaterial({
-              vertexColors: true, // Use vertex colors for gradient
-              emissive: isGlow ? topColor : 0x000000,
-              emissiveIntensity: isGlow ? themeConfig.emissiveIntensity : 0,
-            });
-
-             // Reset highlight color for non-Minesweeper themes
-            if (mesh.userData.highlightMaterial) {
-                 mesh.userData.highlightMaterial.color.set(themeConfig.highlightColor || 0xffcc00);
-            }
-        }
-
-        mesh.material = newMaterial;
-        mesh.userData.originalMaterial = newMaterial; // Store reference for hover reset
+      // Call this instead of updateAllCellMaterials
+      function updateAllCellsAppearance() {
+        app.contributionMeshes.forEach((mesh) => {
+          updateCellAppearance(mesh);
+        });
       }
 
       function setupEventListeners() {
@@ -629,7 +631,8 @@
           const yearInput = document.getElementById("year").value;
 
           if (usernameInput) app.username = usernameInput;
-          if (yearInput && !isNaN(parseInt(yearInput))) app.year = parseInt(yearInput);
+          if (yearInput && !isNaN(parseInt(yearInput)))
+            app.year = parseInt(yearInput);
 
           document.getElementById("loading").style.display = "block";
           clearScene();
@@ -639,7 +642,7 @@
         document
           .getElementById("reset-camera")
           .addEventListener("click", () => {
-             // Reset camera position with animation
+            // Reset camera position with animation
             new TWEEN.Tween(app.camera.position)
               .to({ x: 0, y: 30, z: 40 }, 1000)
               .easing(TWEEN.Easing.Cubic.InOut)
@@ -673,17 +676,18 @@
         document.getElementById("auto-rotate").checked = app.config.autoRotate;
         // Ensure target exists before setting it
         if (app.controls && app.controls.target) {
-             app.controls.target.set(0, 0, 0);
-             app.controls.update();
+          app.controls.target.set(0, 0, 0);
+          app.controls.update();
         } else {
-             console.warn("Controls or target not ready during setupInitialValues");
+          console.warn(
+            "Controls or target not ready during setupInitialValues"
+          );
         }
-
       }
 
       function animateLoadingText() {
         // ... (remains the same)
-         const loadingEl = document.getElementById("loading");
+        const loadingEl = document.getElementById("loading");
         let dots = 0;
         if (app.loadingInterval) clearInterval(app.loadingInterval); // Clear previous interval if any
         app.loadingInterval = setInterval(() => {
@@ -707,12 +711,12 @@
         if (app.composer) {
           app.composer.setSize(window.innerWidth, window.innerHeight);
         }
-         // if (app.bloomPass) { } // Handled by composer resize
+        // if (app.bloomPass) { } // Handled by composer resize
       }
 
       function onCanvasMouseMove(event) {
         // ... (remains the same)
-         const rect = app.renderer.domElement.getBoundingClientRect();
+        const rect = app.renderer.domElement.getBoundingClientRect();
         app.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         app.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       }
@@ -736,7 +740,7 @@
             console.error("Failed to load contribution data:", error);
             document.getElementById("loading").textContent =
               "Failed to load data. Check console for details.";
-             if (app.loadingInterval) clearInterval(app.loadingInterval);
+            if (app.loadingInterval) clearInterval(app.loadingInterval);
           });
       }
 
@@ -772,7 +776,8 @@
                     count += Math.floor(Math.random() * 8);
                   if (rand > baseProb + 0.3)
                     count += Math.floor(Math.random() * 12);
-                  if (rand > baseProb + 0.4) // Make level 4 more likely for Minesweeper testing
+                  if (rand > baseProb + 0.4)
+                    // Make level 4 more likely for Minesweeper testing
                     count += Math.floor(Math.random() * 25); // Increased range
                 }
               }
@@ -782,15 +787,14 @@
             }
 
             // Define contribution levels based on maxContribs (simplified quartile approach)
-             // Ensure thresholds scale reasonably, even with low maxContribs
+            // Ensure thresholds scale reasonably, even with low maxContribs
             const levelThresholds = [
-                0, // Level 0 (count == 0)
-                1, // Level 1 starts at count 1
-                maxContribs > 5 ? Math.ceil(maxContribs * 0.20) : 2, // Level 2 threshold
-                maxContribs > 10 ? Math.ceil(maxContribs * 0.45) : 5, // Level 3 threshold
-                maxContribs > 15 ? Math.ceil(maxContribs * 0.70) : 10, // Level 4 threshold
+              0, // Level 0 (count == 0)
+              1, // Level 1 starts at count 1
+              maxContribs > 5 ? Math.ceil(maxContribs * 0.2) : 2, // Level 2 threshold
+              maxContribs > 10 ? Math.ceil(maxContribs * 0.45) : 5, // Level 3 threshold
+              maxContribs > 15 ? Math.ceil(maxContribs * 0.7) : 10, // Level 4 threshold
             ];
-
 
             // Second pass to assign levels and calculate weekOfYear
             tempDays.forEach((tempDay) => {
@@ -799,20 +803,19 @@
               let contribLevel = "none";
 
               // Assign level based on count and thresholds
-               if (tempDay.count >= levelThresholds[4]) {
-                    level = 4;
-                    contribLevel = "fourth_quartile";
-                } else if (tempDay.count >= levelThresholds[3]) {
-                    level = 3;
-                    contribLevel = "third_quartile";
-                } else if (tempDay.count >= levelThresholds[2]) {
-                    level = 2;
-                    contribLevel = "second_quartile";
-                } else if (tempDay.count >= levelThresholds[1]) {
-                    level = 1;
-                    contribLevel = "first_quartile";
-                }
-
+              if (tempDay.count >= levelThresholds[4]) {
+                level = 4;
+                contribLevel = "fourth_quartile";
+              } else if (tempDay.count >= levelThresholds[3]) {
+                level = 3;
+                contribLevel = "third_quartile";
+              } else if (tempDay.count >= levelThresholds[2]) {
+                level = 2;
+                contribLevel = "second_quartile";
+              } else if (tempDay.count >= levelThresholds[1]) {
+                level = 1;
+                contribLevel = "first_quartile";
+              }
 
               // Calculate week of year (consistent with GitHub)
               const firstDayOfYear = new Date(d.getFullYear(), 0, 1);
@@ -820,8 +823,9 @@
               // Adjust day offset: Sunday is 0, but GitHub week starts on Sunday.
               // The calculation needs the day of the *first day* of the year.
               let weekStartDayOffset = firstDayOfYear.getDay(); // 0=Sun, 1=Mon..
-              const weekOfYear = Math.floor((pastDaysOfYear + weekStartDayOffset) / 7);
-
+              const weekOfYear = Math.floor(
+                (pastDaysOfYear + weekStartDayOffset) / 7
+              );
 
               days.push({
                 date: tempDay.date,
@@ -845,7 +849,7 @@
 
       function createVisualization() {
         // ... (Grid calculation, ground plane, labels remain the same) ...
-         if (!app.contributionData) return;
+        if (!app.contributionData) return;
 
         const { days } = app.contributionData;
         const cellSize = app.config.cellSize;
@@ -861,11 +865,11 @@
           // Map dayOfWeek (0=Sun) to grid row index (0..6)
           const dayIndex = day.dayOfWeek; // 0=Sun..6=Sat
           if (weekOfYear >= 0) {
-             if (!grid[weekOfYear]) grid[weekOfYear] = Array(7).fill(null); // Initialize week array
-             grid[weekOfYear][dayIndex] = day;
-             maxWeek = Math.max(maxWeek, weekOfYear);
+            if (!grid[weekOfYear]) grid[weekOfYear] = Array(7).fill(null); // Initialize week array
+            grid[weekOfYear][dayIndex] = day;
+            maxWeek = Math.max(maxWeek, weekOfYear);
           } else {
-             console.warn("Invalid weekOfYear:", day.date, weekOfYear);
+            console.warn("Invalid weekOfYear:", day.date, weekOfYear);
           }
         });
 
@@ -877,10 +881,13 @@
         const offsetZ = gridDepth / 2 - totalSize / 2;
 
         // Create ground plane
-        const groundGeometry = new THREE.PlaneGeometry(gridWidth + 10, gridDepth + 10);
+        const groundGeometry = new THREE.PlaneGeometry(
+          gridWidth + 10,
+          gridDepth + 10
+        );
         const groundMaterial = new THREE.MeshLambertMaterial({
           // Use a color compatible with Minesweeper theme background
-          color: app.currentTheme === 'Minesweeper' ? 0xa0a0a0 : 0x10141a,
+          color: app.currentTheme === "Minesweeper" ? 0xa0a0a0 : 0x10141a,
           side: THREE.DoubleSide,
         });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
@@ -890,55 +897,75 @@
         app.scene.add(ground);
         app.groundPlane = ground; // Store reference for potential theme updates
 
-
         // Create contribution cells
         for (let week = 0; week <= maxWeek; week++) {
-          for (let day = 0; day < 7; day++) { // day is 0 (Sun) to 6 (Sat)
+          for (let day = 0; day < 7; day++) {
+            // day is 0 (Sun) to 6 (Sat)
             const contribution = grid[week]?.[day];
             const xPos = offsetX + week * totalSize;
             // Calculate zPos where day 0 (Sun) is at the bottom (+Z direction)
             const zPos = offsetZ - day * totalSize;
             // Only create a cell if there's data (even 0 contributions)
-             if (contribution !== null) { // Check for null, not just falsy
-               createContributionCell(contribution || { date: `week ${week}, day ${day}`, count: 0, level: 0, contribLevel: 'none'}, xPos, zPos); // Pass dummy data for empty cells if needed, or only create for actual days
+            if (contribution !== null) {
+              // Check for null, not just falsy
+              createContributionCell(
+                contribution || {
+                  date: `week ${week}, day ${day}`,
+                  count: 0,
+                  level: 0,
+                  contribLevel: "none",
+                },
+                xPos,
+                zPos
+              ); // Pass dummy data for empty cells if needed, or only create for actual days
             } else {
-                 // Optionally create placeholder meshes for days before year start / after year end?
-                 // For now, leave empty.
+              // Optionally create placeholder meshes for days before year start / after year end?
+              // For now, leave empty.
             }
           }
         }
 
-         // Add month labels (Adjust Z position based on new layout)
+        // Add month labels (Adjust Z position based on new layout)
         let lastMonth = -1;
         const monthLabelZ = offsetZ + totalSize * 1.5; // Position above the grid
         days.forEach((day) => {
-            if (day.weekOfYear < 0) return; // Skip days with invalid week
-            const date = new Date(day.date + "T00:00:00"); // Ensure UTC interpretation
-            const month = date.getUTCMonth();
-            const week = day.weekOfYear;
-             const dayOfMonth = date.getUTCDate();
+          if (day.weekOfYear < 0) return; // Skip days with invalid week
+          const date = new Date(day.date + "T00:00:00"); // Ensure UTC interpretation
+          const month = date.getUTCMonth();
+          const week = day.weekOfYear;
+          const dayOfMonth = date.getUTCDate();
 
-             // Place label near the start of the month (first week where day <= 7)
-            if (month !== lastMonth && dayOfMonth <= 7 && week >= 0) {
-                 const monthX = offsetX + week * totalSize;
-                // Ensure label is created only once per month start
-                 if (app.monthLabels.findIndex(label => label.userData.month === month) === -1) {
-                    const label = createMonthLabel(date.toLocaleDateString("en-US", { month: "short" }), monthX, monthLabelZ);
-                    label.userData = { month: month }; // Store month to prevent duplicates
-                    lastMonth = month;
-                 }
+          // Place label near the start of the month (first week where day <= 7)
+          if (month !== lastMonth && dayOfMonth <= 7 && week >= 0) {
+            const monthX = offsetX + week * totalSize;
+            // Ensure label is created only once per month start
+            if (
+              app.monthLabels.findIndex(
+                (label) => label.userData.month === month
+              ) === -1
+            ) {
+              const label = createMonthLabel(
+                date.toLocaleDateString("en-US", { month: "short" }),
+                monthX,
+                monthLabelZ
+              );
+              label.userData = { month: month }; // Store month to prevent duplicates
+              lastMonth = month;
             }
+          }
         });
 
-         // Add day of week labels (Adjust X position based on new layout)
+        // Add day of week labels (Adjust X position based on new layout)
         const dayLabelX = offsetX - totalSize * 1.5; // Position left of the grid
         const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        for (let day = 0; day < 7; day++) { // 0=Sun to 6=Sat
-             // Adjust logic to match visual layout (e.g., show Mon, Wed, Fri)
-             if (day === 1 || day === 3 || day === 5) { // Mon, Wed, Fri
-                const zPos = offsetZ - day * totalSize; // Z position corresponds to the row
-                createDayLabel(daysOfWeek[day], dayLabelX, zPos);
-            }
+        for (let day = 0; day < 7; day++) {
+          // 0=Sun to 6=Sat
+          // Adjust logic to match visual layout (e.g., show Mon, Wed, Fri)
+          if (day === 1 || day === 3 || day === 5) {
+            // Mon, Wed, Fri
+            const zPos = offsetZ - day * totalSize; // Z position corresponds to the row
+            createDayLabel(daysOfWeek[day], dayLabelX, zPos);
+          }
         }
 
         document.getElementById("loading").style.display = "none";
@@ -953,76 +980,296 @@
           .start();
         new TWEEN.Tween(app.camera.position)
           // Adjust camera position slightly based on grid size maybe?
-          .to({ x: centerTarget.x, y: 35, z: centerTarget.z + gridDepth * 0.8 }, 1000)
+          .to(
+            { x: centerTarget.x, y: 35, z: centerTarget.z + gridDepth * 0.8 },
+            1000
+          )
           .easing(TWEEN.Easing.Cubic.Out)
           .start();
       }
 
       // Create a single contribution cell
+      // Create a single contribution cell (SIMPLIFIED)
       function createContributionCell(contribution, x, z) {
         const cellSize = app.config.cellSize;
-         // Make base height very small for Minesweeper, slightly larger otherwise
-        const baseHeight = app.currentTheme === 'Minesweeper' ? 0.01 : 0.1;
-        const scaledHeight = Math.max(0, contribution.count * 0.1 * app.config.heightScale); // Ensure non-negative
+        // Base height calculation remains the same
+        const isMinesweeper = app.currentTheme === "Minesweeper"; // Check current theme
+        const themeConfig = app.themes[app.currentTheme];
+        const useHeight = !isMinesweeper || themeConfig.showHeight !== false;
+        const baseHeight = isMinesweeper ? 0.05 : 0.1;
+        const scaledHeight = useHeight
+          ? Math.max(0, contribution.count * 0.1 * app.config.heightScale)
+          : 0;
         const totalHeight = baseHeight + scaledHeight;
 
-        const geometry = new THREE.BoxGeometry(cellSize, 1, cellSize); // Height is 1, scaled later
-        geometry.translate(0, 0.5, 0); // Pivot at base
+        const geometry = new THREE.BoxGeometry(cellSize, 1, cellSize);
+        geometry.translate(0, 0.5, 0);
 
-        // --- Conditional Vertex Colors ---
-        if (app.currentTheme !== 'Minesweeper') {
-            const positionAttribute = geometry.attributes.position;
-            const colors = [];
-            const themeConfig = app.themes[app.currentTheme];
-            const topColor = new THREE.Color(themeConfig.colors[contribution.contribLevel || 'none']);
-            // Darken bottom color unless it's level 0 (already dark)
-            const bottomColor = contribution.level === 0 ? topColor.clone() : topColor.clone().multiplyScalar(0.6);
+        // Create a default base material (will be immediately updated)
+        const baseMaterial = new THREE.MeshLambertMaterial({ color: 0xcccccc }); // Placeholder
 
-            for (let i = 0; i < positionAttribute.count; i++) {
-              const y = positionAttribute.getY(i);
-              // Apply top color to top face vertices (y > 0 after translate), bottom color otherwise
-              const color = y > 0 ? topColor : bottomColor;
-              colors.push(color.r, color.g, color.b);
-            }
-            geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-        } else {
-             // Ensure color attribute is removed if switching TO minesweeper from another theme
-             if (geometry.attributes.color) {
-                 geometry.deleteAttribute('color');
-             }
-        }
-        // --- End Conditional Vertex Colors ---
-
-        // Material is set by updateSingleCellMaterial based on the current theme
-        const mesh = new THREE.Mesh(geometry, null); // Material assigned by updateSingleCellMaterial
-        mesh.position.set(x, 0, z);
-        mesh.scale.y = totalHeight;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-
-        // Shared highlight material instance (color updated by theme)
-        const highlightMaterial = new THREE.MeshLambertMaterial({
-            color: app.themes[app.currentTheme]?.highlightColor || app.config.highlightColor,
-        });
-
-
-        mesh.userData = {
+        const baseMesh = new THREE.Mesh(geometry, baseMaterial);
+        baseMesh.position.set(x, 0, z);
+        baseMesh.scale.y = totalHeight; // Set initial scale
+        baseMesh.castShadow = true;
+        baseMesh.receiveShadow = true;
+        baseMesh.userData = {
           contribution: contribution,
-          originalMaterial: null, // Set by updateSingleCellMaterial
-          highlightMaterial: highlightMaterial, // Reuse this instance
+          originalMaterial: null, // Will be set by updateCellAppearance
+          highlightMaterial: new THREE.MeshLambertMaterial({
+            // Highlight for base
+            color: themeConfig?.highlightColor || app.config.highlightColor, // Use current theme's highlight
+          }),
           originalHeight: totalHeight,
+          topPlane: null, // Starts null
+          bombModel: null, // Starts null
         };
+        app.scene.add(baseMesh);
+        app.contributionMeshes.push(baseMesh);
 
-        // Set the initial material based on the current theme
-        updateSingleCellMaterial(mesh); // Crucial step
-
-        app.scene.add(mesh);
-        app.contributionMeshes.push(mesh);
+        // Set the initial appearance based on the current theme and data RIGHT AFTER creation
+        updateCellAppearance(baseMesh); // This will set the correct material and add plane/bomb if needed
       }
+
+      // Update appearance for a single cell (base mesh, top plane, bomb model)
+      // NOW handles creation/deletion of plane/bomb
+      // Update appearance for a single cell (base mesh, top plane, bomb model)
+      function updateCellAppearance(baseMesh) {
+        if (!baseMesh || !baseMesh.userData || !baseMesh.userData.contribution)
+          return;
+
+        let { contribution, topPlane, bombModel, highlightMaterial } =
+          baseMesh.userData;
+        const currentThemeName = app.currentTheme;
+        const themeConfig = app.themes[currentThemeName];
+        const isMinesweeper = currentThemeName === "Minesweeper";
+        const isGlow = currentThemeName === "Glow";
+
+        // --- Target Material State ---
+        const targetMaterial = isMinesweeper
+          ? app.minesweeperSunkenMaterial
+          : app.vertexColorMaterial;
+        const needsVertexColors = !isMinesweeper;
+
+        // --- Ensure Shared Materials Exist (Safety check) ---
+        if (!targetMaterial) {
+          console.error(
+            `Target material for theme ${currentThemeName} is missing!`
+          );
+          // Attempt recovery or assign fallback
+          if (isMinesweeper && !app.minesweeperSunkenMaterial)
+            generateMinesweeperTextures();
+          if (!isMinesweeper && !app.vertexColorMaterial) {
+            app.vertexColorMaterial = new THREE.MeshLambertMaterial({
+              vertexColors: true,
+            });
+          }
+          // Re-assign after potential recovery attempt
+          targetMaterial = isMinesweeper
+            ? app.minesweeperSunkenMaterial
+            : app.vertexColorMaterial;
+          if (!targetMaterial) {
+            // Still missing? Assign error material.
+            console.error(
+              "Failed to recover material. Assigning error material."
+            );
+            if (!baseMesh.material || baseMesh.material === highlightMaterial) {
+              baseMesh.material = new THREE.MeshLambertMaterial({
+                color: 0xff00ff,
+              }); // Use current or create error mat
+            } else {
+              baseMesh.material.color?.set(0xff00ff); // Try to set color on existing if possible
+            }
+            return; // Stop processing this cell
+          }
+        }
+
+        // --- 1. Set Base Mesh Material ---
+        // Assign the correct shared material if it's not already set (and not the highlight)
+        if (
+          baseMesh.material !== targetMaterial &&
+          baseMesh.material !== highlightMaterial
+        ) {
+          console.log(
+            `Assigning ${
+              isMinesweeper ? "sunken" : "vertex"
+            } material to baseMesh`
+          );
+          // Dispose the OLD material only if it's not one of the shared ones we might reuse
+          if (
+            baseMesh.material &&
+            baseMesh.material !== app.minesweeperSunkenMaterial &&
+            baseMesh.material !== app.vertexColorMaterial &&
+            baseMesh.material !== highlightMaterial
+          ) {
+            // Check against highlight too
+            baseMesh.material.dispose();
+          }
+          baseMesh.material = targetMaterial;
+          baseMesh.userData.originalMaterial = targetMaterial; // Update original material ref
+        }
+        // Ensure vertexColors property on the assigned material is correct
+        // (This might be redundant if materials are always created correctly, but safe)
+        baseMesh.material.vertexColors = needsVertexColors;
+
+        // --- 2. Manage Geometry Vertex Color Attribute ---
+        const hasVertexColors = !!baseMesh.geometry.attributes.color;
+
+        if (needsVertexColors && !hasVertexColors) {
+          // ADD vertex colors attribute
+          console.log(
+            `Adding vertex colors attribute for theme ${currentThemeName}`
+          );
+          const positionAttribute = baseMesh.geometry.attributes.position;
+          const colors = [];
+          const currentThemeConfig = themeConfig; // Already have themeConfig
+          const colorVal = new THREE.Color(
+            currentThemeConfig.colors[contribution.contribLevel || "none"]
+          );
+          const bottomColor =
+            contribution.level === 0
+              ? colorVal.clone()
+              : colorVal.clone().multiplyScalar(0.6);
+          for (let i = 0; i < positionAttribute.count; i++) {
+            const y = positionAttribute.getY(i);
+            const c = y > 0 ? colorVal : bottomColor;
+            colors.push(c.r, c.g, c.b);
+          }
+          baseMesh.geometry.setAttribute(
+            "color",
+            new THREE.Float32BufferAttribute(colors, 3)
+          );
+          baseMesh.geometry.attributes.color.needsUpdate = true;
+        } else if (!needsVertexColors && hasVertexColors) {
+          // REMOVE vertex colors attribute
+          console.log(
+            `Removing vertex colors attribute for theme ${currentThemeName}`
+          );
+          baseMesh.geometry.deleteAttribute("color");
+        }
+
+        // --- 3. Set Theme-Specific Material Properties (Emissive for Glow) ---
+        if (isGlow) {
+          const topColor = new THREE.Color(
+            themeConfig.colors[contribution.contribLevel || "none"]
+          );
+          baseMesh.material.emissive.set(topColor); // Use set for colors
+          baseMesh.material.emissiveIntensity = themeConfig.emissiveIntensity;
+        } else if (baseMesh.material !== highlightMaterial) {
+          // Ensure emissive is off for non-glow themes (unless it's the highlight)
+          baseMesh.material.emissive?.set(0x000000); // Use set(0x000000)
+          baseMesh.material.emissiveIntensity = 0;
+        }
+        // Flag material for update if we changed emissive props or assigned new material
+        if (baseMesh.material !== highlightMaterial) {
+          baseMesh.material.needsUpdate = true;
+        }
+
+        // --- 4. Manage Minesweeper Child Objects (Plane & Bomb) ---
+        if (isMinesweeper) {
+          // Ensure Top Plane Exists and is Correct
+          if (!topPlane) {
+            // Create and configure top plane
+            const planeSize = app.config.cellSize * 0.95;
+            const topPlaneGeo = new THREE.PlaneGeometry(planeSize, planeSize);
+            const topPlaneMat = new THREE.MeshLambertMaterial({
+              map: app.minesweeperTextures.empty,
+            });
+            topPlane = new THREE.Mesh(topPlaneGeo, topPlaneMat);
+            topPlane.rotation.x = -Math.PI / 2;
+            topPlane.userData.baseMesh = baseMesh;
+            app.scene.add(topPlane);
+            baseMesh.userData.topPlane = topPlane; // Store reference
+          }
+
+          // Update Top Plane Texture and Position
+          let texture;
+          const count = contribution.count;
+          const isMine =
+            contribution.level >= themeConfig.mineThresholdLevel && count > 0;
+
+          if (isMine) {
+            texture = app.minesweeperTextures.sunkenBackground;
+          } else if (count > 0) {
+            texture =
+              app.minesweeperTextures.numbers[Math.max(1, Math.min(count, 8))];
+          } else {
+            texture = app.minesweeperTextures.empty;
+          }
+
+          if (topPlane.material.map !== texture) {
+            topPlane.material.map = texture;
+            topPlane.material.needsUpdate = true;
+          }
+          topPlane.position.set(
+            baseMesh.position.x,
+            baseMesh.scale.y + 0.01,
+            baseMesh.position.z
+          );
+
+          // Manage Bomb Model
+          if (isMine) {
+            if (!bombModel) {
+              bombModel = createBombModel(app.config.cellSize);
+              app.scene.add(bombModel);
+              baseMesh.userData.bombModel = bombModel;
+            }
+            bombModel.visible = true;
+            bombModel.position.set(
+              baseMesh.position.x,
+              baseMesh.scale.y + 0.01,
+              baseMesh.position.z
+            );
+          } else {
+            // Not a mine
+            if (bombModel) {
+              bombModel.visible = false;
+            }
+          }
+        } else {
+          // Not Minesweeper - Clean up child objects
+          if (topPlane) {
+            if (topPlane.parent) topPlane.parent.remove(topPlane);
+            // Dispose geometry/material fully when removing
+            topPlane.geometry?.dispose();
+            topPlane.material?.map?.dispose();
+            topPlane.material?.dispose();
+            baseMesh.userData.topPlane = null;
+          }
+          if (bombModel) {
+            bombModel.visible = false; // Hide immediately
+            if (bombModel.parent) bombModel.parent.remove(bombModel);
+            // Full cleanup of bomb model geometry/materials if needed - handled in clearScene or disposeShared
+            baseMesh.userData.bombModel = null; // Remove reference
+          }
+        }
+
+        // --- 5. Ensure Correct Scale and Child Positions ---
+        const useHeight = !isMinesweeper || themeConfig.showHeight !== false;
+        const baseHeight = isMinesweeper ? 0.05 : 0.1;
+        const scaledHeight = useHeight
+          ? Math.max(0, contribution.count * 0.1 * app.config.heightScale)
+          : 0;
+        const totalHeight = baseHeight + scaledHeight;
+        if (Math.abs(baseMesh.scale.y - totalHeight) > 0.001) {
+          baseMesh.scale.y = totalHeight;
+          const elementYPos = totalHeight + 0.01;
+          if (topPlane) topPlane.position.y = elementYPos;
+          if (bombModel && bombModel.visible)
+            bombModel.position.y = elementYPos;
+        }
+        // --- Ensure Correct Highlight Color ---
+        if (highlightMaterial) {
+          const highlightColor = isMinesweeper
+            ? themeConfig.cellHighlightColor
+            : themeConfig.highlightColor || app.config.highlightColor;
+          highlightMaterial.color.set(highlightColor);
+        }
+      } // End updateCellAppearance
 
       // Create month/day labels (remain the same)
       function createMonthLabel(text, x, z) {
-         const canvas = document.createElement("canvas");
+        const canvas = document.createElement("canvas");
         const context = canvas.getContext("2d");
         const scaleFactor = 2;
         const baseFontSize = 14;
@@ -1038,7 +1285,11 @@
         const texture = new THREE.CanvasTexture(canvas);
         texture.needsUpdate = true;
         texture.colorSpace = THREE.SRGBColorSpace; // Specify color space
-        const material = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9 });
+        const material = new THREE.SpriteMaterial({
+          map: texture,
+          transparent: true,
+          opacity: 0.9,
+        });
         const sprite = new THREE.Sprite(material);
         sprite.position.set(x, 0.3, z);
         sprite.scale.set(3, 1.5, 1);
@@ -1047,7 +1298,7 @@
         return sprite; // Return sprite for potential userData storage
       }
 
-       function createDayLabel(text, x, z) {
+      function createDayLabel(text, x, z) {
         const canvas = document.createElement("canvas");
         const context = canvas.getContext("2d");
         const scaleFactor = 2;
@@ -1064,44 +1315,93 @@
         const texture = new THREE.CanvasTexture(canvas);
         texture.needsUpdate = true;
         texture.colorSpace = THREE.SRGBColorSpace; // Specify color space
-        const material = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9 });
+        const material = new THREE.SpriteMaterial({
+          map: texture,
+          transparent: true,
+          opacity: 0.9,
+        });
         const sprite = new THREE.Sprite(material);
         sprite.position.set(x, 0.3, z);
         sprite.scale.set(2.5, 1.25, 1);
         app.scene.add(sprite);
         app.weekLabels.push(sprite);
-       }
-
+      }
 
       // Update heights
       function updateHeights() {
-         const baseHeight = app.currentTheme === 'Minesweeper' ? 0.01 : 0.1;
+        const isMinesweeper = app.currentTheme === "Minesweeper";
+        const themeConfig = app.themes[app.currentTheme];
+        const useHeight = !isMinesweeper || themeConfig.showHeight !== false;
+
+        const baseHeight = isMinesweeper ? 0.05 : 0.1;
+
         app.contributionMeshes.forEach((mesh) => {
-          const { contribution } = mesh.userData;
-          const scaledHeight = Math.max(0, contribution.count * 0.1 * app.config.heightScale);
+          const { contribution, topPlane, bombModel } = mesh.userData;
+          const scaledHeight = useHeight
+            ? Math.max(0, contribution.count * 0.1 * app.config.heightScale)
+            : 0;
           const newTotalHeight = baseHeight + scaledHeight;
-           // Animate height change? Optional.
-           // new TWEEN.Tween(mesh.scale).to({ y: newTotalHeight }, 300).easing(TWEEN.Easing.Quadratic.Out).start();
-          mesh.scale.y = newTotalHeight; // Direct update for now
+
+          // Update base mesh scale
+          mesh.scale.y = newTotalHeight;
+
+          // Update positions of associated elements (if they exist)
+          const elementYPos = newTotalHeight + 0.01; // Position slightly above the scaled base
+          if (topPlane) {
+            topPlane.position.y = elementYPos;
+          }
+          if (bombModel) {
+            bombModel.position.y = elementYPos;
+          }
         });
       }
 
       // Clear scene (Update to dispose materials AND textures)
       function clearScene() {
-        // Remove contribution meshes and dispose materials/geometry
+        // Remove contribution meshes and dispose associated elements
         while (app.contributionMeshes.length > 0) {
-            const mesh = app.contributionMeshes.pop();
-            if (mesh.parent) mesh.parent.remove(mesh);
-             if (mesh.geometry) mesh.geometry.dispose();
-             // Dispose the current material
-             if (mesh.material) mesh.material.dispose();
-            // Dispose the stored original material (might be the same instance)
-            if (mesh.userData.originalMaterial) mesh.userData.originalMaterial.dispose();
-            // Dispose the highlight material (if unique instances were created, otherwise careful)
-             // Since we reuse the highlightMaterial instance, only dispose if sure it's not needed
-             // Or better: don't dispose highlightMaterial here, manage it separately if needed.
-             // Let's assume highlightMaterial instance is managed elsewhere or reused.
-            mesh.userData = null; // Help GC
+          const mesh = app.contributionMeshes.pop();
+          const userData = mesh.userData || {};
+
+          // Remove and dispose top plane IF IT EXISTS
+          if (userData.topPlane) {
+            // Check existence before accessing parent
+            if (userData.topPlane.parent)
+              userData.topPlane.parent.remove(userData.topPlane);
+            userData.topPlane.geometry?.dispose();
+            userData.topPlane.material?.map?.dispose();
+            userData.topPlane.material?.dispose();
+          }
+
+          // Remove bomb model IF IT EXISTS (don't dispose shared materials here)
+          if (userData.bombModel) {
+            // Check existence before accessing parent
+            if (userData.bombModel.parent)
+              userData.bombModel.parent.remove(userData.bombModel);
+            userData.bombModel.traverse((child) => {
+              // Dispose geometry inside
+              if (child.isMesh) child.geometry?.dispose();
+            });
+          }
+
+          // Remove base mesh
+          if (mesh.parent) mesh.parent.remove(mesh);
+          if (mesh.geometry) mesh.geometry.dispose(); // Dispose unique geometry
+
+          // Dispose the material currently assigned, IF it's not a shared one or highlight
+          if (
+            mesh.material &&
+            mesh.material !== app.minesweeperSunkenMaterial &&
+            mesh.material !== app.vertexColorMaterial &&
+            mesh.material !== userData.highlightMaterial
+          ) {
+            // Check highlight too
+            mesh.material.dispose();
+          }
+          // Dispose highlight material (assuming unique per cell)
+          if (userData.highlightMaterial) userData.highlightMaterial.dispose();
+
+          mesh.userData = null; // Help GC
         }
         app.contributionMeshes = [];
 
@@ -1112,7 +1412,7 @@
           if (label.material.map) label.material.map.dispose();
           if (label.material) label.material.dispose();
         }
-         app.monthLabels = [];
+        app.monthLabels = [];
 
         // Remove day labels and dispose textures/materials
         while (app.weekLabels.length > 0) {
@@ -1124,24 +1424,25 @@
         app.weekLabels = [];
 
         // Remove ground plane
-         if (app.groundPlane) {
-            if (app.groundPlane.parent) app.groundPlane.parent.remove(app.groundPlane);
-            if (app.groundPlane.geometry) app.groundPlane.geometry.dispose();
-            if (app.groundPlane.material) app.groundPlane.material.dispose();
-            app.groundPlane = null;
+        if (app.groundPlane) {
+          if (app.groundPlane.parent)
+            app.groundPlane.parent.remove(app.groundPlane);
+          if (app.groundPlane.geometry) app.groundPlane.geometry.dispose();
+          if (app.groundPlane.material) app.groundPlane.material.dispose();
+          app.groundPlane = null;
         }
 
-        // Dispose Minesweeper textures if they exist
-        // Don't dispose here if switching themes, only when unloading fully?
-        // Let's dispose them here for a clean slate on data reload.
+        // Dispose Minesweeper textures & shared materials (if they exist)
         disposeMinesweeperTextures();
-
+        // Dispose SHARED materials (sunken, vertexColor, bomb)
+        disposeSharedMaterials();
 
         // Reset hover info
-        document.getElementById("hover-info").textContent = "Hover over a cell to see details";
+        // Reset hover info
+        document.getElementById("hover-info").textContent =
+          "Hover over a cell to see details";
         app.hoveredCell = null;
       }
-
 
       // Animation loop
       function animate() {
@@ -1150,83 +1451,98 @@
         app.controls.update();
         TWEEN.update();
 
-        // --- Raycasting ---
+        // --- Raycasting (Targets baseMesh in app.contributionMeshes) ---
         app.raycaster.setFromCamera(app.mouse, app.camera);
-        const intersects = app.raycaster.intersectObjects(app.contributionMeshes, false);
+        const intersects = app.raycaster.intersectObjects(
+          app.contributionMeshes,
+          false
+        );
 
         let intersectedObject = null;
         if (intersects.length > 0) {
-            // Find the first intersected object that is a contribution cell
-             for (let i = 0; i < intersects.length; i++) {
-                if (intersects[i].object?.userData?.contribution) {
-                    intersectedObject = intersects[i].object;
-                    break;
-                }
+          // Find the first intersected object that is a contribution cell base mesh
+          for (let i = 0; i < intersects.length; i++) {
+            // Check if it's one of our base meshes stored in contributionMeshes
+            if (app.contributionMeshes.includes(intersects[i].object)) {
+              intersectedObject = intersects[i].object;
+              break; // Found the base mesh
             }
+          }
         }
 
-
-        // Handle hover out
+        // Handle hover out - Apply to baseMesh
         if (app.hoveredCell && app.hoveredCell !== intersectedObject) {
-             // Restore the THEMED original material only if it exists
-            if (app.hoveredCell.userData?.originalMaterial) {
-                 // Check if material still exists (might have been disposed during theme switch/clear)
-                try {
-                    app.hoveredCell.material = app.hoveredCell.userData.originalMaterial;
-                } catch (e) {
-                    console.warn("Failed to restore original material, likely disposed.", e);
-                     // Optionally try to re-apply material based on current theme
-                     // updateSingleCellMaterial(app.hoveredCell);
-                }
-
-            } else {
-                 console.warn("Hovered out cell missing original material reference.");
+          if (app.hoveredCell.userData?.originalMaterial) {
+            try {
+              // Restore the original material of the BASE mesh
+              app.hoveredCell.material =
+                app.hoveredCell.userData.originalMaterial;
+            } catch (e) {
+              /* ignore if disposed */
             }
-            app.hoveredCell = null;
-            document.getElementById("hover-info").textContent = "Hover over a cell to see details";
+          }
+          app.hoveredCell = null;
+          document.getElementById("hover-info").textContent =
+            "Hover over a cell to see details";
         }
 
-        // Handle hover in
+        // Handle hover in - Apply to baseMesh
         if (intersectedObject && app.hoveredCell !== intersectedObject) {
-            // Ensure previous hover is cleared BEFORE applying new highlight
-            if (app.hoveredCell && app.hoveredCell.userData?.originalMaterial) {
-                 try {
-                    app.hoveredCell.material = app.hoveredCell.userData.originalMaterial;
-                 } catch(e) { /* ignore if disposed */ }
-            }
+          // Clear previous hover first
+          if (app.hoveredCell && app.hoveredCell.userData?.originalMaterial) {
+            try {
+              app.hoveredCell.material =
+                app.hoveredCell.userData.originalMaterial;
+            } catch (e) {}
+          }
 
-            app.hoveredCell = intersectedObject;
-            // Apply THEMED highlight material
-            if (app.hoveredCell.userData?.highlightMaterial) {
-                 // Ensure highlight material color is up-to-date with current theme
-                const themeConfig = app.themes[app.currentTheme];
-                app.hoveredCell.userData.highlightMaterial.color.set(
-                     app.currentTheme === 'Minesweeper'
-                         ? themeConfig.cellHighlightColor
-                         : (themeConfig.highlightColor || app.config.highlightColor)
-                 );
-                app.hoveredCell.material = app.hoveredCell.userData.highlightMaterial;
-            } else {
-                 console.warn("Hovered cell missing highlight material reference.");
-            }
+          app.hoveredCell = intersectedObject; // This is the baseMesh
+          // Apply highlight material TO THE BASE MESH
+          if (app.hoveredCell.userData?.highlightMaterial) {
+            // Update highlight material color just in case theme changed
+            const currentThemeConfig = app.themes[app.currentTheme];
+            const highlightColor =
+              app.currentTheme === "Minesweeper"
+                ? currentThemeConfig.cellHighlightColor
+                : currentThemeConfig.highlightColor ||
+                  app.config.highlightColor;
+            app.hoveredCell.userData.highlightMaterial.color.set(
+              highlightColor
+            );
 
+            app.hoveredCell.material =
+              app.hoveredCell.userData.highlightMaterial;
+          }
 
-            // Update info display
-            const { contribution } = app.hoveredCell.userData;
-            if (contribution) {
-                 const date = new Date(contribution.date + "T00:00:00"); // Use UTC date
-                const formattedDate = date.toLocaleDateString("en-US", { timeZone: 'UTC', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-                document.getElementById("hover-info").innerHTML = `<strong>${formattedDate}</strong><br>${contribution.count} contribution${contribution.count !== 1 ? 's' : ''}`;
-            } else {
-                 document.getElementById("hover-info").textContent = "No data for this cell.";
-            }
-
+          // Update info display
+          const { contribution } = app.hoveredCell.userData;
+          if (contribution) {
+            const date = new Date(contribution.date + "T00:00:00"); // Use UTC date
+            const formattedDate = date.toLocaleDateString("en-US", {
+              timeZone: "UTC",
+              weekday: "long",
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            });
+            document.getElementById(
+              "hover-info"
+            ).innerHTML = `<strong>${formattedDate}</strong><br>${
+              contribution.count
+            } contribution${contribution.count !== 1 ? "s" : ""}`;
+          } else {
+            document.getElementById("hover-info").textContent =
+              "No data for this cell.";
+          }
         }
         // --- End Raycasting ---
 
-
         // --- Conditional Rendering ---
-        if (app.currentTheme === "Glow" && app.composer && app.bloomPass?.enabled) {
+        if (
+          app.currentTheme === "Glow" &&
+          app.composer &&
+          app.bloomPass?.enabled
+        ) {
           app.composer.render(); // Use composer for Glow theme
         } else {
           app.renderer.render(app.scene, app.camera); // Use direct renderer otherwise
@@ -1234,6 +1550,63 @@
         // --- End Conditional Rendering ---
       }
 
+      // --- Minesweeper Bomb Model ---
+      function createBombModel(size) {
+          if (!app.minesweeperBombMaterial) {
+            app.minesweeperBombMaterial = new THREE.MeshLambertMaterial({
+              color: app.themes.Minesweeper.bombColor,
+            });
+            app.minesweeperFuseMaterial = new THREE.MeshBasicMaterial({
+              color: app.themes.Minesweeper.fuseColor,
+            }); // Basic material for simple fuse
+          }
+
+          const bombGroup = new THREE.Group();
+
+          // Body (Sphere)
+          const bodyRadius = size * 0.3;
+          const bodyGeometry = new THREE.SphereGeometry(bodyRadius, 16, 8);
+          const bodyMesh = new THREE.Mesh(
+            bodyGeometry,
+            app.minesweeperBombMaterial
+          );
+          bodyMesh.castShadow = true;
+          bombGroup.add(bodyMesh);
+
+          // Fuse (Cylinder or Line)
+          const fuseHeight = bodyRadius * 0.6;
+          const fuseRadius = bodyRadius * 0.15;
+          // Simple Cylinder Fuse
+          const fuseGeometry = new THREE.CylinderGeometry(
+            fuseRadius,
+            fuseRadius,
+            fuseHeight,
+            8
+          );
+          const fuseMesh = new THREE.Mesh(
+            fuseGeometry,
+            app.minesweeperFuseMaterial
+          );
+          fuseMesh.position.y = bodyRadius + fuseHeight / 2 - fuseHeight * 0.1; // Position on top
+          fuseMesh.rotation.z = Math.PI / 8; // Slight tilt
+          bombGroup.add(fuseMesh);
+
+          // Optional: Spark (small sphere/sprite?) - Omitted for simplicity
+
+          bombGroup.scale.set(0.8, 0.8, 0.8); // Scale the whole model down slightly if needed
+          bombGroup.position.y = 0.02; // Lift slightly off the base plane
+
+          return bombGroup;
+        }
+
+        // Dispose bomb materials when clearing scene potentially
+        function disposeBombMaterials() {
+          app.minesweeperBombMaterial?.dispose();
+          app.minesweeperFuseMaterial?.dispose();
+          app.minesweeperBombMaterial = null;
+          app.minesweeperFuseMaterial = null;
+        }
+        // --- End Minesweeper Bomb Model ---
 
       // == OrbitControls Implementation ==
       // [ ... OrbitControls code remains exactly the same ... ]
@@ -1742,10 +2115,10 @@
             if (scope.enableRotate === false) return;
             handleMouseMoveRotate(event);
           } else if (state === STATE.DOLLY) {
-             if (scope.enableZoom === false) return;
+            if (scope.enableZoom === false) return;
             handleMouseMoveDolly(event);
           } else if (state === STATE.PAN) {
-             if (scope.enablePan === false) return;
+            if (scope.enablePan === false) return;
             handleMouseMovePan(event);
           }
         }
@@ -1757,17 +2130,18 @@
 
           switch (event.button) {
             case scope.mouseButtons.LEFT: // Default: Rotate
-                 // Modifier check for Pan (Shift/Ctrl/Meta)
-                 if (event.ctrlKey || event.metaKey || event.shiftKey) {
-                    if (scope.enablePan === false) return;
-                    handleMouseDownPan(event);
-                    state = STATE.PAN;
-                 } else { // No modifier: Rotate
-                    if (scope.enableRotate === false) return;
-                    handleMouseDownRotate(event);
-                    state = STATE.ROTATE;
-                 }
-                break;
+              // Modifier check for Pan (Shift/Ctrl/Meta)
+              if (event.ctrlKey || event.metaKey || event.shiftKey) {
+                if (scope.enablePan === false) return;
+                handleMouseDownPan(event);
+                state = STATE.PAN;
+              } else {
+                // No modifier: Rotate
+                if (scope.enableRotate === false) return;
+                handleMouseDownRotate(event);
+                state = STATE.ROTATE;
+              }
+              break;
 
             case scope.mouseButtons.MIDDLE: // Default: Dolly
               if (scope.enableZoom === false) return;
@@ -1811,19 +2185,21 @@
         }
 
         function handleMouseWheel(event) {
-             // Normalize deltaY value across browsers
-            let delta = 0;
-            if (event.wheelDelta) { // Old WebKit
-                delta = -event.wheelDelta / 120;
-            } else if (event.deltaY) { // Modern standard
-                delta = event.deltaY / 3; // Adjust sensitivity?
-            }
+          // Normalize deltaY value across browsers
+          let delta = 0;
+          if (event.wheelDelta) {
+            // Old WebKit
+            delta = -event.wheelDelta / 120;
+          } else if (event.deltaY) {
+            // Modern standard
+            delta = event.deltaY / 3; // Adjust sensitivity?
+          }
 
-            if (delta < 0) {
-                dollyOut(getZoomScale());
-            } else if (delta > 0) {
-                dollyIn(getZoomScale());
-            }
+          if (delta < 0) {
+            dollyOut(getZoomScale());
+          } else if (delta > 0) {
+            dollyIn(getZoomScale());
+          }
 
           scope.update();
         }
@@ -1884,7 +2260,8 @@
               break;
 
             case 2: // two-fingered touch: dolly-pan
-              if (scope.enableZoom === false && scope.enablePan === false) return;
+              if (scope.enableZoom === false && scope.enablePan === false)
+                return;
               handleTouchStartDollyPan(event);
               state = STATE.TOUCH_DOLLY_PAN;
               break;
@@ -1931,7 +2308,8 @@
               break;
 
             case 2: // two-fingered touch: dolly-pan
-              if (scope.enableZoom === false && scope.enablePan === false) return;
+              if (scope.enableZoom === false && scope.enablePan === false)
+                return;
               if (state !== STATE.TOUCH_DOLLY_PAN) return;
               handleTouchMoveDollyPan(event);
               break;
@@ -1943,8 +2321,13 @@
 
         function handleTouchMoveRotate(event) {
           rotateEnd.set(event.touches[0].pageX, event.touches[0].pageY);
-          rotateDelta.subVectors(rotateEnd, rotateStart).multiplyScalar(scope.rotateSpeed);
-          var element = scope.domElement === document ? scope.domElement.body : scope.domElement;
+          rotateDelta
+            .subVectors(rotateEnd, rotateStart)
+            .multiplyScalar(scope.rotateSpeed);
+          var element =
+            scope.domElement === document
+              ? scope.domElement.body
+              : scope.domElement;
           rotateLeft((2 * Math.PI * rotateDelta.x) / element.clientHeight); // yes, height
           rotateUp((2 * Math.PI * rotateDelta.y) / element.clientHeight);
           rotateStart.copy(rotateEnd);
@@ -1957,7 +2340,10 @@
             var dy = event.touches[0].pageY - event.touches[1].pageY;
             var distance = Math.sqrt(dx * dx + dy * dy);
             dollyEnd.set(0, distance);
-            dollyDelta.set(0, Math.pow(dollyEnd.y / dollyStart.y, scope.zoomSpeed)); // Calculate dolly delta
+            dollyDelta.set(
+              0,
+              Math.pow(dollyEnd.y / dollyStart.y, scope.zoomSpeed)
+            ); // Calculate dolly delta
             dollyIn(dollyDelta.y); // Apply dolly
             dollyStart.copy(dollyEnd); // Update start point
           }
@@ -1966,13 +2352,14 @@
             var x = 0.5 * (event.touches[0].pageX + event.touches[1].pageX);
             var y = 0.5 * (event.touches[0].pageY + event.touches[1].pageY);
             panEnd.set(x, y);
-            panDelta.subVectors(panEnd, panStart).multiplyScalar(scope.panSpeed);
+            panDelta
+              .subVectors(panEnd, panStart)
+              .multiplyScalar(scope.panSpeed);
             pan(panDelta.x, panDelta.y);
             panStart.copy(panEnd);
           }
           scope.update();
         }
-
 
         function onTouchEnd(/*event*/) {
           if (scope.enabled === false) return;
@@ -1988,11 +2375,17 @@
         // Add event listeners to the domElement
         scope.domElement.addEventListener("contextmenu", onContextMenu, false);
         scope.domElement.addEventListener("mousedown", onMouseDown, false);
-        scope.domElement.addEventListener("wheel", onMouseWheel, { passive: false }); // Use passive: false if calling preventDefault
+        scope.domElement.addEventListener("wheel", onMouseWheel, {
+          passive: false,
+        }); // Use passive: false if calling preventDefault
 
-        scope.domElement.addEventListener("touchstart", onTouchStart, { passive: false }); // Use passive: false
+        scope.domElement.addEventListener("touchstart", onTouchStart, {
+          passive: false,
+        }); // Use passive: false
         scope.domElement.addEventListener("touchend", onTouchEnd, false);
-        scope.domElement.addEventListener("touchmove", onTouchMove, { passive: false }); // Use passive: false
+        scope.domElement.addEventListener("touchmove", onTouchMove, {
+          passive: false,
+        }); // Use passive: false
 
         // Listen to window for keydown event
         window.addEventListener("keydown", onKeyDown, false);
